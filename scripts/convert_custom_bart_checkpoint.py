@@ -109,9 +109,16 @@ def convert_bart_checkpoint(checkpoint_path, pytorch_dump_folder_path, hf_config
         pytorch_dump_folder_path: Output directory for HuggingFace model
         hf_config_name: Optional HuggingFace config name to use as base
     """
-    logger.info(f"Loading checkpoint from {checkpoint_path}")
+    print(f"\n{'='*70}")
+    print(f"Converting fairseq BART checkpoint to HuggingFace format")
+    print(f"{'='*70}")
+    print(f"Checkpoint path: {checkpoint_path}")
+    print(f"Output directory: {pytorch_dump_folder_path}")
+    print(f"Base config: {hf_config_name or 'None (creating from scratch)'}")
+    print(f"{'='*70}\n")
 
     # Load the fairseq checkpoint
+    print("Step 1: Loading fairseq checkpoint...")
     checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
 
     # Extract model state dict
@@ -120,40 +127,81 @@ def convert_bart_checkpoint(checkpoint_path, pytorch_dump_folder_path, hf_config
     else:
         state_dict = checkpoint
 
+    print(f"✓ Checkpoint loaded successfully")
+    print(f"  Total keys in state dict: {len(state_dict)}")
+
     # Remove keys that should be ignored
     remove_ignore_keys_(state_dict)
 
     # Infer config from state dict
+    print("\nStep 2: Inferring model configuration from checkpoint...")
     config = infer_config_from_state_dict(state_dict, hf_config_name)
+
+    print(f"\n✓ Configuration inferred:")
+    print(f"  vocab_size: {config.vocab_size}")
+    print(f"  d_model: {config.d_model}")
+    print(f"  encoder_layers: {config.encoder_layers}")
+    print(f"  decoder_layers: {config.decoder_layers}")
+    print(f"  encoder_attention_heads: {config.encoder_attention_heads}")
+    print(f"  decoder_attention_heads: {config.decoder_attention_heads}")
 
     # Add shared embeddings (required by HuggingFace)
     if 'shared.weight' not in state_dict:
         state_dict['shared.weight'] = state_dict['decoder.embed_tokens.weight']
 
-    logger.info("Creating HuggingFace model")
+    print("\nStep 3: Creating HuggingFace model with inferred config...")
     model = BartForConditionalGeneration(config)
+    print(f"✓ Model created")
+    print(f"  Model vocab size: {model.config.vocab_size}")
+    print(f"  Embedding size: {model.model.shared.weight.shape}")
 
     # Load state dict into model
-    logger.info("Loading state dict into model")
-    model.model.load_state_dict(state_dict, strict=False)
+    print("\nStep 4: Loading checkpoint weights into model...")
+    missing_keys, unexpected_keys = model.model.load_state_dict(state_dict, strict=False)
+    print(f"✓ Weights loaded")
+    if missing_keys:
+        print(f"  Missing keys: {len(missing_keys)}")
+    if unexpected_keys:
+        print(f"  Unexpected keys: {len(unexpected_keys)}")
 
     # Set lm_head from shared embeddings
     if hasattr(model, "lm_head"):
         vocab_size, emb_size = model.model.shared.weight.shape
         model.lm_head.weight.data = model.model.shared.weight.data
+        print(f"  LM head weight shape: {model.lm_head.weight.shape}")
 
     # Save the model
-    logger.info(f"Saving model to {pytorch_dump_folder_path}")
+    print(f"\nStep 5: Saving model to {pytorch_dump_folder_path}...")
     Path(pytorch_dump_folder_path).mkdir(parents=True, exist_ok=True)
     model.save_pretrained(pytorch_dump_folder_path)
 
-    logger.info("Conversion complete!")
-    logger.info(f"Model saved to: {pytorch_dump_folder_path}")
-    logger.info(f"Vocabulary size: {config.vocab_size}")
-    logger.info("\nNote: You will need to copy your custom tokenizer files to this directory:")
-    logger.info(f"  - vocab.json")
-    logger.info(f"  - merges.txt")
-    logger.info(f"  - tokenizer_config.json (optional)")
+    # Verify the saved config
+    import json
+    saved_config_path = Path(pytorch_dump_folder_path) / "config.json"
+    with open(saved_config_path, 'r') as f:
+        saved_config = json.load(f)
+
+    print(f"\n{'='*70}")
+    print(f"✓ Conversion complete!")
+    print(f"{'='*70}")
+    print(f"Model saved to: {pytorch_dump_folder_path}")
+    print(f"Saved vocab_size: {saved_config['vocab_size']}")
+    print(f"Expected vocab_size: {config.vocab_size}")
+
+    if saved_config['vocab_size'] != config.vocab_size:
+        print(f"\n⚠️  WARNING: Saved vocab size doesn't match expected!")
+        print(f"   This may cause issues when using the model.")
+    else:
+        print(f"\n✓ Vocabulary sizes match!")
+
+    print(f"\n{'='*70}")
+    print(f"IMPORTANT: Copy your custom tokenizer files to:")
+    print(f"  {pytorch_dump_folder_path}/")
+    print(f"Required files:")
+    print(f"  - vocab.json")
+    print(f"  - merges.txt")
+    print(f"  - tokenizer_config.json (optional)")
+    print(f"{'='*70}\n")
 
 
 if __name__ == "__main__":

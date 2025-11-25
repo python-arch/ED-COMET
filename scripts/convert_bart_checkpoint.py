@@ -71,7 +71,8 @@ def rename_key(dct, old, new):
 
 def load_xsum_checkpoint(checkpoint_path):
     """Checkpoint path should end in model.pt"""
-    sd = torch.load(checkpoint_path, map_location="cpu", weights_only=True)
+    # Set weights_only=False to allow loading fairseq checkpoints with argparse.Namespace objects
+    sd = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
     hub_interface = torch.hub.load("pytorch/fairseq", "bart.large.cnn").eval()
     hub_interface.model.load_state_dict(sd["model"])
     return hub_interface

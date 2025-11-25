@@ -1,6 +1,6 @@
 # BART Finetuning on ATOMIC2020 - Complete Guide
 
-This guide walks you through finetuning your pretrained BART model (from fairseq) on the ATOMIC2020 dataset using COMET's training methodology.
+This guide walks through finetuning pretrained BART model (from fairseq) on the ATOMIC2020 dataset using COMET's training methodology.
 
 ## Prerequisites
 
@@ -12,7 +12,7 @@ This guide walks you through finetuning your pretrained BART model (from fairseq
 
 ### Step 1: Convert Fairseq BART to HuggingFace Format
 
-Since the finetuning script uses HuggingFace Transformers, you need to convert your fairseq checkpoint first:
+Since the finetuning script uses HuggingFace Transformers, we need to convert our fairseq checkpoint first:
 
 ```bash
 # Install transformers if not already installed
@@ -24,7 +24,7 @@ python -m transformers.models.bart.convert_bart_original_pytorch_checkpoint_to_p
     --pytorch_dump_folder_path ./checkpoints/bart_hf
 ```
 
-**Note:** Replace `/path/to/your/fairseq/checkpoint.pt` with the actual path to your pretrained checkpoint.
+**Note:** Replace `/path/to/your/fairseq/checkpoint.pt` with the actual path to our pretrained checkpoint.
 
 ### Step 2: Extract ATOMIC2020 Dataset
 

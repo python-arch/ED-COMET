@@ -6,9 +6,9 @@ from typing import Any, Dict
 
 import pytorch_lightning as pl
 from pytorch_lightning.utilities import rank_zero_info
+import torch
 
 from transformers import (
-    AdamW,
     AutoConfig,
     AutoModel,
     AutoModelForPreTraining,
@@ -22,6 +22,12 @@ from transformers import (
     PreTrainedTokenizer,
     get_linear_schedule_with_warmup,
 )
+
+# AdamW moved to torch.optim in newer transformers versions
+try:
+    from transformers import AdamW
+except ImportError:
+    from torch.optim import AdamW
 
 
 logger = logging.getLogger(__name__)

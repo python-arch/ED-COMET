@@ -93,41 +93,21 @@ def create_merges_txt(fairseq_vocab, output_path):
     """
     Create merges.txt for HuggingFace tokenizer.
 
-    Since we're converting from an existing vocabulary, we create a minimal
-    merges file. The actual BPE merges were already applied during fairseq
-    preprocessing, so we just need a placeholder that works with HF.
+    For word-level tokenization (no BPE), we create a minimal merges file
+    with just the version header. This is required by HuggingFace BART tokenizer
+    but won't actually be used for merging since tokens are already complete words.
     """
-    # Filter out special tokens
-    special_tokens = {'<s>', '<pad>', '</s>', '<unk>', '<mask>'}
-    regular_tokens = [t for t in fairseq_vocab.keys() if t not in special_tokens]
-
-    merges = []
-
-    # For subword tokens (containing @@), create merge operations
-    for token in regular_tokens:
-        # Check if token looks like a BPE subword
-        if '@@' in token:
-            # Remove @@ and split
-            clean = token.replace('@@', '')
-            if len(clean) > 1:
-                # Create a merge: first_char + rest_of_word
-                merges.append(f"{clean[0]} {clean[1:]}")
-        elif len(token) > 1 and not token.startswith('<'):
-            # For multi-character tokens, create character-level merges
-            # This is a simplification but works for most cases
-            chars = list(token)
-            for i in range(len(chars) - 1):
-                merge = f"{chars[i]} {chars[i+1]}"
-                if merge not in merges:
-                    merges.append(merge)
-
-    # Write merges
+    # Write minimal merges file (just version header)
+    # For word-level tokenization, no actual merges are needed
     with open(output_path, 'w', encoding='utf-8') as f:
         f.write("#version: 0.2\n")
-        for merge in merges[:50000]:  # Limit to 50k merges to keep file manageable
-            f.write(f"{merge}\n")
+        # Add a few dummy merges to satisfy the tokenizer
+        # These won't affect tokenization since all words are in vocab
+        f.write("Ġ t\n")
+        f.write("Ġ a\n")
+        f.write("Ġ the\n")
 
-    return merges
+    return []
 
 
 def create_tokenizer_config(output_path, vocab_size):

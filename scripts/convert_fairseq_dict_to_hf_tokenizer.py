@@ -101,12 +101,6 @@ def create_merges_txt(fairseq_vocab, output_path):
     # For word-level tokenization, no actual merges are needed
     with open(output_path, 'w', encoding='utf-8') as f:
         f.write("#version: 0.2\n")
-        # Add a few dummy merges to satisfy the tokenizer
-        # These won't affect tokenization since all words are in vocab
-        f.write("Ġ t\n")
-        f.write("Ġ a\n")
-        f.write("Ġ the\n")
-
     return []
 
 

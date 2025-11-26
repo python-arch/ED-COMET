@@ -179,12 +179,15 @@ class SummarizationModule(BaseTransformer):
         # Use val/test max_target_length for generation
         max_length = self.target_lens.get("val", self.hparams.max_target_length)
 
+        # Match paper settings: greedy decoding, max_length=24, min_length=1
+        # Paper: "Each approach uses greedy decoding for all test prefixes"
         generated_ids = self.model.generate(
             input_ids=source_ids,
             attention_mask=source_mask,
             max_length=max_length,
-            num_beams=4,
-            early_stopping=True,
+            min_length=1,
+            num_beams=1,  # Greedy decoding (paper uses this, not beam search)
+            do_sample=False,
             use_cache=True,
             decoder_start_token_id=self.decoder_start_token_id,
         )

@@ -22,7 +22,6 @@ from transformers import (
     PreTrainedTokenizer,
     get_linear_schedule_with_warmup,
 )
-#### TEMP
 from transformers import BartTokenizer
 
 
@@ -80,12 +79,15 @@ class BaseTransformer(pl.LightningModule):
         else:
             self.config: PretrainedConfig = config
         if tokenizer is None:
-            ### temp fix
-            self.tokenizer = BartTokenizer.from_pretrained(self.hparams.model_name_or_path, local_files_only=True, cache_dir=cache_dir)
-            # self.tokenizer = AutoTokenizer.from_pretrained(
-            #     self.hparams.tokenizer_name if self.hparams.tokenizer_name else self.hparams.model_name_or_path,
-            #     cache_dir=cache_dir,
-            # )
+            # WORKAROUND: Use BartTokenizer directly instead of AutoTokenizer
+            # AutoTokenizer was causing issues with the converted checkpoint
+            # where vocab_size mismatch or tokenizer class detection failed.
+            # This ensures we use the correct tokenizer for BART models.
+            self.tokenizer = BartTokenizer.from_pretrained(
+                self.hparams.model_name_or_path,
+                local_files_only=True,
+                cache_dir=cache_dir
+            )
         else:
             self.tokenizer: PreTrainedTokenizer = tokenizer
         self.model_type = MODEL_MODES[mode]

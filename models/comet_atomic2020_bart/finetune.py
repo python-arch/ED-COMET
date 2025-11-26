@@ -3,7 +3,6 @@ import glob
 import logging
 import os
 import time
-import warnings
 from collections import defaultdict
 from pathlib import Path
 from typing import Dict, List, Tuple
@@ -14,7 +13,7 @@ import torch
 from torch.utils.data import DataLoader
 
 from lightning_base import BaseTransformer, add_generic_args, generic_train
-from transformers import MBartTokenizer, get_linear_schedule_with_warmup
+from transformers import MBartTokenizer
 
 
 try:
@@ -228,19 +227,12 @@ class SummarizationModule(BaseTransformer):
         return dataloader
 
     def train_dataloader(self) -> DataLoader:
-        dataloader = self.get_dataloader("train", batch_size=self.hparams.train_batch_size, shuffle=True)
-        # t_total = (
-        #     (len(dataloader.dataset) // (self.hparams.train_batch_size * max(1, self.hparams.gpus)))
-        #     // self.hparams.accumulate_grad_batches
-        #     * float(self.hparams.max_epochs)
-        # )
-        # scheduler = get_linear_schedule_with_warmup(
-        #     self.opt, num_warmup_steps=self.hparams.warmup_steps, num_training_steps=t_total
-        # )
-        # if max(scheduler.get_last_lr()) > 0:
-        #     warnings.warn("All learning rates are 0")
-        # self.lr_scheduler = scheduler
-        return dataloader
+        # Use cached train_loader from setup() if available to ensure consistency
+        # with total_steps calculation in configure_optimizers()
+        if hasattr(self, 'train_loader') and self.train_loader is not None:
+            return self.train_loader
+        # Fallback: create dataloader (used before setup() is called)
+        return self.get_dataloader("train", batch_size=self.hparams.train_batch_size, shuffle=True)
 
     def val_dataloader(self) -> DataLoader:
         return self.get_dataloader("val", batch_size=self.hparams.eval_batch_size)

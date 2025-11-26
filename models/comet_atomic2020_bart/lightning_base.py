@@ -22,6 +22,9 @@ from transformers import (
     PreTrainedTokenizer,
     get_linear_schedule_with_warmup,
 )
+#### TEMP
+from transformers import BartTokenizer
+
 
 # AdamW moved to torch.optim in newer transformers versions
 try:
@@ -77,10 +80,12 @@ class BaseTransformer(pl.LightningModule):
         else:
             self.config: PretrainedConfig = config
         if tokenizer is None:
-            self.tokenizer = AutoTokenizer.from_pretrained(
-                self.hparams.tokenizer_name if self.hparams.tokenizer_name else self.hparams.model_name_or_path,
-                cache_dir=cache_dir,
-            )
+            ### temp fix
+            self.tokenizer = BartTokenizer.from_pretrained(self.hparams.model_name_or_path, local_files_only=True, cache_dir=cache_dir)
+            # self.tokenizer = AutoTokenizer.from_pretrained(
+            #     self.hparams.tokenizer_name if self.hparams.tokenizer_name else self.hparams.model_name_or_path,
+            #     cache_dir=cache_dir,
+            # )
         else:
             self.tokenizer: PreTrainedTokenizer = tokenizer
         self.model_type = MODEL_MODES[mode]
@@ -98,7 +103,6 @@ class BaseTransformer(pl.LightningModule):
         self.model = self.model_type.from_pretrained(*args, **kwargs)
 
     def configure_optimizers(self):
-        "Prepare optimizer and schedule (linear warmup and decay)"
         model = self.model
         no_decay = ["bias", "LayerNorm.weight"]
         optimizer_grouped_parameters = [
@@ -115,10 +119,13 @@ class BaseTransformer(pl.LightningModule):
         self.opt = optimizer
 
         scheduler = get_linear_schedule_with_warmup(
-            self.opt, num_warmup_steps=self.hparams.warmup_steps, num_training_steps=self.total_steps
+            optimizer,
+            num_warmup_steps=self.hparams.warmup_steps,
+            num_training_steps=self.total_steps,  # use total steps from setup()
         )
         scheduler = {"scheduler": scheduler, "interval": "step", "frequency": 1}
         return [optimizer], [scheduler]
+
 
     def test_step(self, batch, batch_nb):
         return self.validation_step(batch, batch_nb)

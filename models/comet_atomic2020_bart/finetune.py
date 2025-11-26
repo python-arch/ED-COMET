@@ -229,17 +229,17 @@ class SummarizationModule(BaseTransformer):
 
     def train_dataloader(self) -> DataLoader:
         dataloader = self.get_dataloader("train", batch_size=self.hparams.train_batch_size, shuffle=True)
-        t_total = (
-            (len(dataloader.dataset) // (self.hparams.train_batch_size * max(1, self.hparams.gpus)))
-            // self.hparams.accumulate_grad_batches
-            * float(self.hparams.max_epochs)
-        )
-        scheduler = get_linear_schedule_with_warmup(
-            self.opt, num_warmup_steps=self.hparams.warmup_steps, num_training_steps=t_total
-        )
-        if max(scheduler.get_last_lr()) > 0:
-            warnings.warn("All learning rates are 0")
-        self.lr_scheduler = scheduler
+        # t_total = (
+        #     (len(dataloader.dataset) // (self.hparams.train_batch_size * max(1, self.hparams.gpus)))
+        #     // self.hparams.accumulate_grad_batches
+        #     * float(self.hparams.max_epochs)
+        # )
+        # scheduler = get_linear_schedule_with_warmup(
+        #     self.opt, num_warmup_steps=self.hparams.warmup_steps, num_training_steps=t_total
+        # )
+        # if max(scheduler.get_last_lr()) > 0:
+        #     warnings.warn("All learning rates are 0")
+        # self.lr_scheduler = scheduler
         return dataloader
 
     def val_dataloader(self) -> DataLoader:

@@ -16,6 +16,7 @@ echo "=================================================="
 FAIRSEQ_PREPROCESS=${FAIRSEQ_PREPROCESS:-fairseq-preprocess}
 FAIRSEQ_TRAIN=${FAIRSEQ_TRAIN:-fairseq-train}
 FAIRSEQ_GENERATE=${FAIRSEQ_GENERATE:-fairseq-generate}
+FAIRSEQ_INTERACTIVE=${FAIRSEQ_INTERACTIVE:-fairseq-interactive}
 PYTHON_BIN=${PYTHON_BIN:-python}
 
 # Paths
@@ -33,6 +34,7 @@ EXPANDED_DICT=${EXPANDED_DICT:-"./data-bin/atomic_bart/dict_comet.txt"}
 # Optional: per-epoch eval
 EVAL_EACH_EPOCH=${EVAL_EACH_EPOCH:-0}
 EVAL_MODE=${EVAL_MODE:-"simple"}  # simple | paper
+EVAL_DURING_TRAINING=${EVAL_DURING_TRAINING:-0}
 EVAL_SPLIT=${EVAL_SPLIT:-"valid"}
 EVAL_OUT_DIR=${EVAL_OUT_DIR:-"./results_fairseq"}
 EVAL_BEAM=${EVAL_BEAM:-1}
@@ -49,6 +51,7 @@ UPDATE_FREQ=${UPDATE_FREQ:-4}
 LR=${LR:-3e-5}
 LR_SCHEDULER=${LR_SCHEDULER:-fixed}
 TOTAL_NUM_UPDATE=${TOTAL_NUM_UPDATE:-}
+SAVE_INTERVAL=${SAVE_INTERVAL:-1}
 
 if [[ ! -f "$CKPT_PATH" ]]; then
   echo "Missing checkpoint: $CKPT_PATH"
@@ -206,21 +209,75 @@ else
   TRAIN_CMD=($FAIRSEQ_TRAIN)
 fi
 
-"${TRAIN_CMD[@]}" "$DATA_BIN" \
-  --restore-file "$CKPT_TO_USE" \
-  --arch "$ARCH" \
-  --task translation \
-  --source-lang source --target-lang target \
-  --criterion label_smoothed_cross_entropy --label-smoothing 0.1 \
-  --optimizer adam --adam-betas '(0.9,0.98)' --adam-eps 1e-08 \
-  --lr "$LR" --lr-scheduler "$LR_SCHEDULER" --warmup-updates 500 \
-  ${TOTAL_NUM_UPDATE:+--total-num-update "$TOTAL_NUM_UPDATE"} \
-  --max-tokens "$MAX_TOKENS" --update-freq "$UPDATE_FREQ" \
-  --dropout 0.1 --attention-dropout 0.1 \
-  --weight-decay 0.01 --clip-norm 0.1 \
-  --max-epoch "$MAX_EPOCH" \
-  --reset-optimizer --reset-dataloader --reset-meters \
-  --save-dir "$SAVE_DIR"
+run_train() {
+  local restore_file=$1
+  local max_epoch=$2
+  local reset_flags=$3
+
+  "${TRAIN_CMD[@]}" "$DATA_BIN" \
+    --restore-file "$restore_file" \
+    --arch "$ARCH" \
+    --task translation \
+    --source-lang source --target-lang target \
+    --criterion label_smoothed_cross_entropy --label-smoothing 0.1 \
+    --optimizer adam --adam-betas '(0.9,0.98)' --adam-eps 1e-08 \
+    --lr "$LR" --lr-scheduler "$LR_SCHEDULER" --warmup-updates 500 \
+    ${TOTAL_NUM_UPDATE:+--total-num-update "$TOTAL_NUM_UPDATE"} \
+    --max-tokens "$MAX_TOKENS" --update-freq "$UPDATE_FREQ" \
+    --dropout 0.1 --attention-dropout 0.1 \
+    --weight-decay 0.01 --clip-norm 0.1 \
+    --max-epoch "$max_epoch" \
+    --save-interval "$SAVE_INTERVAL" \
+    $reset_flags \
+    --save-dir "$SAVE_DIR"
+}
+
+run_eval() {
+  local ckpt=$1
+  if [[ "$EVAL_MODE" == "paper" ]]; then
+    bash scripts/eval_fairseq_paper_style.sh \
+      FAIRSEQ_INTERACTIVE="$FAIRSEQ_INTERACTIVE" \
+      PYTHON_BIN="$PYTHON_BIN" \
+      DATA_BIN="$DATA_BIN" \
+      CKPT="$ckpt" \
+      SYSTEM_EVAL_DIR="$SYSTEM_EVAL_DIR" \
+      OUT_DIR="$EVAL_OUT_DIR" \
+      LOG_FILE="$EVAL_OUT_DIR/paper_eval_log.jsonl" \
+      BEAM="$EVAL_BEAM" \
+      MAX_LEN_B="$EVAL_MAX_LEN_B"
+  else
+    bash scripts/eval_fairseq_checkpoint.sh \
+      FAIRSEQ_GENERATE="$FAIRSEQ_GENERATE" \
+      DATA_BIN="$DATA_BIN" \
+      CKPT="$ckpt" \
+      SPLIT="$EVAL_SPLIT" \
+      OUT_DIR="$EVAL_OUT_DIR" \
+      LOG_FILE="$EVAL_LOG_FILE" \
+      BEAM="$EVAL_BEAM" \
+      MAX_LEN_B="$EVAL_MAX_LEN_B"
+  fi
+}
+
+if [[ "$EVAL_EACH_EPOCH" -eq 1 && "$EVAL_DURING_TRAINING" -eq 1 ]]; then
+  for epoch in $(seq 1 "$MAX_EPOCH"); do
+    if [[ "$epoch" -eq 1 ]]; then
+      run_train "$CKPT_TO_USE" "$epoch" "--reset-optimizer --reset-dataloader --reset-meters"
+    else
+      last_ckpt="$SAVE_DIR/checkpoint_last.pt"
+      if [[ ! -f "$last_ckpt" ]]; then
+        last_ckpt="$CKPT_TO_USE"
+      fi
+      run_train "$last_ckpt" "$epoch" ""
+    fi
+    ckpt_path="$SAVE_DIR/checkpoint${epoch}.pt"
+    if [[ ! -f "$ckpt_path" ]]; then
+      ckpt_path="$SAVE_DIR/checkpoint_last.pt"
+    fi
+    run_eval "$ckpt_path"
+  done
+else
+  run_train "$CKPT_TO_USE" "$MAX_EPOCH" "--reset-optimizer --reset-dataloader --reset-meters"
+fi
 
 echo ""
 echo "=================================================="
@@ -229,33 +286,12 @@ echo "=================================================="
 echo "Optional generation:"
 echo "  $FAIRSEQ_GENERATE $DATA_BIN --path $SAVE_DIR/checkpoint_best.pt --source-lang source --target-lang target --beam 5 --max-len-b 24"
 
-if [[ "$EVAL_EACH_EPOCH" -eq 1 ]]; then
+if [[ "$EVAL_EACH_EPOCH" -eq 1 && "$EVAL_DURING_TRAINING" -eq 0 ]]; then
   echo ""
   echo "Running per-epoch eval ($EVAL_MODE)..."
   mkdir -p "$EVAL_OUT_DIR"
   while IFS= read -r ckpt; do
-    if [[ "$EVAL_MODE" == "paper" ]]; then
-      bash scripts/eval_fairseq_paper_style.sh \
-        FAIRSEQ_INTERACTIVE="$FAIRSEQ_GENERATE" \
-        PYTHON_BIN="$PYTHON_BIN" \
-        DATA_BIN="$DATA_BIN" \
-        CKPT="$ckpt" \
-        SYSTEM_EVAL_DIR="$SYSTEM_EVAL_DIR" \
-        OUT_DIR="$EVAL_OUT_DIR" \
-        LOG_FILE="$EVAL_OUT_DIR/paper_eval_log.jsonl" \
-        BEAM="$EVAL_BEAM" \
-        MAX_LEN_B="$EVAL_MAX_LEN_B"
-    else
-      bash scripts/eval_fairseq_checkpoint.sh \
-        FAIRSEQ_GENERATE="$FAIRSEQ_GENERATE" \
-        DATA_BIN="$DATA_BIN" \
-        CKPT="$ckpt" \
-        SPLIT="$EVAL_SPLIT" \
-        OUT_DIR="$EVAL_OUT_DIR" \
-        LOG_FILE="$EVAL_LOG_FILE" \
-        BEAM="$EVAL_BEAM" \
-        MAX_LEN_B="$EVAL_MAX_LEN_B"
-    fi
+    run_eval "$ckpt"
   done < <(ls "$SAVE_DIR"/checkpoint*.pt 2>/dev/null | sort -V)
   if [[ "$EVAL_MODE" == "paper" ]]; then
     echo "Eval log: $EVAL_OUT_DIR/paper_eval_log.jsonl"

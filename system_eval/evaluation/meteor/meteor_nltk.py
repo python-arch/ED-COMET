@@ -24,7 +24,13 @@ class Meteor:
 
         for i in imgIds:
             assert(len(res[i]) == 1)
-            score = round(meteor_score(gts[i], res[i][0]), 4)
+            refs = gts[i]
+            hyp = res[i][0]
+            if isinstance(refs, str):
+                refs = [refs]
+            tok_refs = [r.split() if isinstance(r, str) else list(r) for r in refs]
+            tok_hyp = hyp.split() if isinstance(hyp, str) else list(hyp)
+            score = round(meteor_score(tok_refs, tok_hyp), 4)
             scores.append(score)
         #print('{}\n'.format(eval_line))
         #self.meteor_p.stdin.write('{}\n'.format(eval_line))
@@ -39,4 +45,3 @@ class Meteor:
 
     def method(self):
         return "METEOR"
-

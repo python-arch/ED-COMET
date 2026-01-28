@@ -156,12 +156,12 @@ if d is not None:
     orig_vocab_size = len(d)
     to_add = []
     if expand_tokens:
-        to_add.extend([t for t in special_tokens if d.index(t) == d.unk()])
+        to_add.extend([t for t in special_tokens if t not in d.indices])
     if expand_from_data:
         counts = iter_data_tokens(data_dir)
         data_tokens = [t for t, c in counts.items() if c >= min_freq]
         data_tokens = sorted(data_tokens, key=lambda x: (-counts[x], x))
-        to_add.extend([t for t in data_tokens if d.index(t) == d.unk()])
+        to_add.extend([t for t in data_tokens if t not in d.indices])
     for t in to_add:
         d.add_symbol(t)
     new_vocab_size = len(d)
@@ -204,6 +204,19 @@ def expand_weight(key, new_size):
     new_w[old_size:] = 0.02 * torch.randn(new_size - old_size, dim)
     state[key] = new_w
 
+def expand_bias(key, new_size):
+    if key not in state:
+        return
+    b = state[key]
+    old_size = b.shape[0]
+    if old_size == new_size:
+        return
+    if old_size > new_size:
+        raise ValueError(f"{key} size {old_size} > new vocab size {new_size}")
+    new_b = b.new_zeros(new_size)
+    new_b[:old_size] = b
+    state[key] = new_b
+
 if "encoder.embed_tokens.weight" in state:
     old = state["encoder.embed_tokens.weight"].shape[0]
     if old != orig_vocab_size:
@@ -212,11 +225,12 @@ if "encoder.embed_tokens.weight" in state:
 expand_weight("encoder.embed_tokens.weight", new_vocab_size)
 expand_weight("decoder.embed_tokens.weight", new_vocab_size)
 expand_weight("decoder.output_projection.weight", new_vocab_size)
+expand_bias("decoder.output_projection.bias", new_vocab_size)
 
 if "model" in ckpt:
     ckpt["model"] = state
 else:
-    ckpt = state
+    ckpt = {"model": state}
 
 out_ckpt.parent.mkdir(parents=True, exist_ok=True)
 torch.save(ckpt, out_ckpt)

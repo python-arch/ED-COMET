@@ -54,6 +54,10 @@ LR=${LR:-3e-5}
 LR_SCHEDULER=${LR_SCHEDULER:-fixed}
 TOTAL_NUM_UPDATE=${TOTAL_NUM_UPDATE:-}
 SAVE_INTERVAL=${SAVE_INTERVAL:-1}
+NO_EPOCH_CHECKPOINTS=${NO_EPOCH_CHECKPOINTS:-0}
+NO_LAST_CHECKPOINTS=${NO_LAST_CHECKPOINTS:-0}
+KEEP_BEST_CHECKPOINTS=${KEEP_BEST_CHECKPOINTS:-1}
+KEEP_LAST_EPOCHS=${KEEP_LAST_EPOCHS:-1}
 
 if [[ ! -f "$CKPT_PATH" ]]; then
   echo "Missing checkpoint: $CKPT_PATH"
@@ -259,6 +263,17 @@ run_train() {
   local max_epoch=$2
   local reset_flags=$3
 
+  local ckpt_flags=()
+  ckpt_flags+=(--save-interval "$SAVE_INTERVAL")
+  ckpt_flags+=(--keep-best-checkpoints "$KEEP_BEST_CHECKPOINTS")
+  ckpt_flags+=(--keep-last-epochs "$KEEP_LAST_EPOCHS")
+  if [[ "$NO_EPOCH_CHECKPOINTS" -eq 1 ]]; then
+    ckpt_flags+=(--no-epoch-checkpoints)
+  fi
+  if [[ "$NO_LAST_CHECKPOINTS" -eq 1 ]]; then
+    ckpt_flags+=(--no-last-checkpoints)
+  fi
+
   "${TRAIN_CMD[@]}" "$DATA_BIN" \
     --restore-file "$restore_file" \
     --arch "$ARCH" \
@@ -272,7 +287,7 @@ run_train() {
     --dropout 0.1 --attention-dropout 0.1 \
     --weight-decay 0.01 --clip-norm 0.1 \
     --max-epoch "$max_epoch" \
-    --save-interval "$SAVE_INTERVAL" \
+    "${ckpt_flags[@]}" \
     $reset_flags \
     --save-dir "$SAVE_DIR"
 }

@@ -99,7 +99,7 @@ GENERIC_NORM = {normalize_text(x) for x in GENERIC_PHRASES}
 
 
 def strip_bullets(text: str) -> str:
-    return re.sub(r"^[\\s\\-\\*\\d\\)\\.\\u2022]+", "", text).strip()
+    return re.sub(r"^[\\s\\-\\*\\d\\)\\.\\u2022•]+", "", text).strip()
 
 
 def clean_tail(text: str) -> str:
@@ -131,21 +131,35 @@ def jaccard_overlap(a: str, b: str) -> float:
 
 
 def extract_json(text: str) -> Optional[dict]:
-    # Try brace-balanced extraction first (more robust than regex-only).
+    # Brace-balanced extraction that skips braces inside quoted strings.
     candidates = []
     start = None
     depth = 0
+    in_str = False
+    escape = False
     for idx, ch in enumerate(text):
-        if ch == "{":
-            if depth == 0:
-                start = idx
-            depth += 1
-        elif ch == "}":
-            if depth > 0:
-                depth -= 1
-                if depth == 0 and start is not None:
-                    candidates.append(text[start : idx + 1])
-                    start = None
+        if in_str:
+            if escape:
+                escape = False
+            elif ch == "\\":
+                escape = True
+            elif ch == "\"":
+                in_str = False
+            continue
+        else:
+            if ch == "\"":
+                in_str = True
+                continue
+            if ch == "{":
+                if depth == 0:
+                    start = idx
+                depth += 1
+            elif ch == "}":
+                if depth > 0:
+                    depth -= 1
+                    if depth == 0 and start is not None:
+                        candidates.append(text[start : idx + 1])
+                        start = None
     # Fallback to non-greedy regex if no balanced blocks.
     if not candidates:
         candidates = re.findall(r"\{.*?\}", text, flags=re.DOTALL)
@@ -298,8 +312,8 @@ def generate_heads(
         head = obj["head"].strip()
         if head:
             head = head.strip().rstrip(".!?")
-            if not head.lower().startswith("personx"):
-                head = "PersonX " + re.sub(r"^personx\s*", "", head, flags=re.I).strip()
+            head = re.sub(r"^personx[\\s:,-]*", "", head, flags=re.I).strip()
+            head = "PersonX " + head if head else head
         if not head:
             continue
         tags = build_tags(ex.country, ex.region, add_region, add_country)

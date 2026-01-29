@@ -31,6 +31,10 @@ RELATIONS = [
     "oReact",
     "oWant",
 ]
+TO_RELATIONS = {"xIntent", "xNeed", "xWant", "oWant"}
+EFFECT_RELATIONS = {"xEffect", "oEffect"}
+REACT_RELATIONS = {"xReact", "oReact"}
+ATTR_RELATIONS = {"xAttr"}
 
 GENERIC_PHRASES = {
     "feel happy",
@@ -126,6 +130,16 @@ def tail_too_short(text: str, rel: str) -> bool:
 def tail_low_alpha_ratio(text: str) -> bool:
     letters = sum(ch.isalpha() for ch in text)
     return (letters / max(1, len(text))) < 0.6
+
+
+def normalize_tail_for_relation(rel: str, text: str) -> str:
+    text = clean_tail(text)
+    if not text:
+        return ""
+    norm = normalize_text(text)
+    if rel in TO_RELATIONS and not norm.startswith("to "):
+        text = "to " + text
+    return text
 
 
 def jaccard_overlap(a: str, b: str) -> float:
@@ -278,6 +292,7 @@ def generate_heads(
     add_country: bool,
     temperature: float,
     batch_size: int,
+    max_head_words: int,
 ) -> List[HeadResult]:
     system = (
         "You are a strict data generation engine. Return ONLY valid JSON. No extra text."
@@ -312,6 +327,7 @@ def generate_heads(
 
     results: List[HeadResult] = []
     parse_fail = 0
+    length_drop = 0
     for ex, out in zip(examples, outputs):
         text = out.outputs[0].text
         obj = extract_json(text)
@@ -322,13 +338,25 @@ def generate_heads(
         if head:
             head = head.strip().rstrip(".!?")
             head = re.sub(r"^personx[\\s:,-]*", "", head, flags=re.I).strip()
-            head = "PersonX " + head if head else head
+            if head:
+                head = re.split(r"[.!?]", head, maxsplit=1)[0].strip()
+                head = "PersonX " + head
+        if head and max_head_words:
+            if len(head.split()) > max_head_words:
+                length_drop += 1
+                continue
         if not head:
             continue
         tags = build_tags(ex.country, ex.region, add_region, add_country)
         results.append(HeadResult(example=ex, head=head, tags=tags))
 
-    LOGGER.info("Heads parsed: %d/%d (failed %d)", len(results), len(outputs), parse_fail)
+    LOGGER.info(
+        "Heads parsed: %d/%d (failed %d, length_drop %d)",
+        len(results),
+        len(outputs),
+        parse_fail,
+        length_drop,
+    )
 
     del llm
     gc.collect()
@@ -365,7 +393,7 @@ def filter_tails(head: str, tails: Dict[str, List[str]], min_tails: int, overlap
         rel_tails = []
         seen_norm = set()
         for t in tails.get(rel, []):
-            t = clean_tail(t)
+            t = normalize_tail_for_relation(rel, t)
             if not t:
                 continue
             if tail_too_short(t, rel):
@@ -376,11 +404,16 @@ def filter_tails(head: str, tails: Dict[str, List[str]], min_tails: int, overlap
                 continue
             if normalize_text(t) in GENERIC_NORM:
                 continue
+            norm = normalize_text(t)
+            if rel in EFFECT_RELATIONS | REACT_RELATIONS and norm.startswith("to "):
+                continue
+            if rel in ATTR_RELATIONS:
+                if len(norm.split()) > 3:
+                    continue
             if jaccard_overlap(head, t) >= overlap:
                 continue
             if t.lower() == "none":
                 continue
-            norm = normalize_text(t)
             if norm in seen_norm:
                 continue
             seen_norm.add(norm)
@@ -398,7 +431,7 @@ def filter_tails_partial(head: str, tails: Dict[str, List[str]], overlap: float)
         rel_tails = []
         seen_norm = set()
         for t in tails.get(rel, []) or []:
-            t = clean_tail(t)
+            t = normalize_tail_for_relation(rel, t)
             if not t:
                 continue
             if tail_too_short(t, rel):
@@ -409,11 +442,16 @@ def filter_tails_partial(head: str, tails: Dict[str, List[str]], overlap: float)
                 continue
             if normalize_text(t) in GENERIC_NORM:
                 continue
+            norm = normalize_text(t)
+            if rel in EFFECT_RELATIONS | REACT_RELATIONS and norm.startswith("to "):
+                continue
+            if rel in ATTR_RELATIONS:
+                if len(norm.split()) > 3:
+                    continue
             if jaccard_overlap(head, t) >= overlap:
                 continue
             if t.lower() == "none":
                 continue
-            norm = normalize_text(t)
             if norm in seen_norm:
                 continue
             seen_norm.add(norm)
@@ -623,6 +661,7 @@ def main():
     parser.add_argument("--tails-only", action="store_true")
     parser.add_argument("--heads-file", default=None)
     parser.add_argument("--batch-size", type=int, default=256)
+    parser.add_argument("--max-head-words", type=int, default=16)
 
     args = parser.parse_args()
 
@@ -658,6 +697,7 @@ def main():
             add_country=args.add_country_tag,
             temperature=0.6,
             batch_size=args.batch_size,
+            max_head_words=args.max_head_words,
         )
         heads_file = args.heads_file or os.path.join(args.output_dir, "heads.jsonl")
         write_heads(heads_file, heads)

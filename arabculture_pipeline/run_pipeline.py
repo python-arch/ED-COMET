@@ -49,6 +49,10 @@ GENERIC_PHRASES = {
     "feel fine",
     "none",
 }
+GENERIC_EMOTION_RE = re.compile(
+    r"\b(feel|feels|felt)\s+(happy|sad|good|bad|upset|angry)\b",
+    re.IGNORECASE,
+)
 
 COUNTRY_CODE = {
     "Egypt": "EGY",
@@ -117,6 +121,11 @@ def tail_too_short(text: str, rel: str) -> bool:
     if rel in {"xIntent", "xNeed", "xWant", "oWant"} and len(norm_tokens) < 2:
         return True
     return len(text.strip()) < 3
+
+
+def tail_low_alpha_ratio(text: str) -> bool:
+    letters = sum(ch.isalpha() for ch in text)
+    return (letters / max(1, len(text))) < 0.6
 
 
 def jaccard_overlap(a: str, b: str) -> float:
@@ -271,7 +280,7 @@ def generate_heads(
     batch_size: int,
 ) -> List[HeadResult]:
     system = (
-        "You are a strict data generator. Return only valid JSON, no extra text."
+        "You are a strict data generation engine. Return ONLY valid JSON. No extra text."
     )
     user_tpl = (
         "Convert this Arabic scenario into ONE ATOMIC-style head event in English.\n\n"
@@ -334,13 +343,19 @@ def build_tails_prompt(head: str, tags: str, n_tails: int) -> str:
         "Return ONLY JSON with keys:\n"
         "xIntent,xNeed,xEffect,xReact,xWant,xAttr,oEffect,oReact,oWant\n\n"
         f"Constraints:\n- Exactly {n_tails} tails per key.\n"
+        "- Each key must map to a JSON array of plain strings (no bullets or numbering).\n"
+        "- Each tail must be at least 2 words (xAttr can be 1-3 words).\n"
         "- Short (3-10 words), verb phrases preferred.\n"
         "- Distinct tails; no paraphrases of the head.\n"
-        "- Avoid generic tails (happy/sad) unless grounded.\n"
+        "- Avoid generic emotion phrases like \"feels happy/sad/good/bad\" unless grounded by a specific reason.\n"
         "- No \"none\".\n"
+        "- Each key must map to a JSON array of strings.\n"
         "- xIntent/xNeed/xWant/oWant should start with \"to\".\n"
+        "- xEffect/oEffect should be outcomes (no \"to ...\" advice).\n"
+        "- xReact/oReact should be feelings or thoughts.\n"
         "- xAttr should be short traits (1-3 words, adjectives).\n"
         "- Avoid single-letter outputs or list markers.\n"
+        "- Before returning, verify: valid JSON, all 9 keys present, each key has exactly N items, no single-letter items.\n"
     )
 
 
@@ -354,6 +369,10 @@ def filter_tails(head: str, tails: Dict[str, List[str]], min_tails: int, overlap
             if not t:
                 continue
             if tail_too_short(t, rel):
+                continue
+            if GENERIC_EMOTION_RE.search(t):
+                continue
+            if tail_low_alpha_ratio(t):
                 continue
             if normalize_text(t) in GENERIC_NORM:
                 continue
@@ -383,6 +402,10 @@ def filter_tails_partial(head: str, tails: Dict[str, List[str]], overlap: float)
             if not t:
                 continue
             if tail_too_short(t, rel):
+                continue
+            if GENERIC_EMOTION_RE.search(t):
+                continue
+            if tail_low_alpha_ratio(t):
                 continue
             if normalize_text(t) in GENERIC_NORM:
                 continue
@@ -432,7 +455,8 @@ def generate_tails(
     prompts = [
         format_chat(
             tokenizer,
-            "You are a careful commonsense generator.",
+            "You are generating training data. Return ONLY valid JSON. "
+            "No extra text, bullets, numbering, or single-letter items.",
             build_tails_prompt(h.head, h.tags, base_tails),
         )
         for h in heads
@@ -465,7 +489,8 @@ def generate_tails(
         extra_prompts = [
             format_chat(
                 tokenizer,
-                "You add one more tail per relation.",
+                "You add one more tail per relation. Return ONLY valid JSON. "
+                "No extra text, bullets, numbering, or single-letter items.",
                 build_tails_prompt(h.head, h.tags, 1),
             )
             for h in good_heads

@@ -175,7 +175,11 @@ python arabculture_pipeline/filter_heads.py \
   --output /path/to/output/arabculture_atomic/heads.filtered.jsonl \
   --min-alpha-ratio 0.6 \
   --max-words 16 \
-  --reject-other-persons
+  --reject-other-persons \
+  --reject-arabic \
+  --reject-personx-article \
+  --reject-adverbs \
+  --reject-demonyms
 ```
 
 Then run tails-only with `--heads-file heads.filtered.jsonl`.

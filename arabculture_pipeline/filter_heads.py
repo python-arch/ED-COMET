@@ -7,8 +7,14 @@ from typing import Dict
 
 
 ARABIC_RE = re.compile(r"[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF]")
-PERSONX_THE_RE = re.compile(r"^PersonX\s+The\b", re.IGNORECASE)
+PERSONX_ARTICLE_RE = re.compile(r"^PersonX\s+(?:The|A|An)\b", re.IGNORECASE)
 ADVERB_RE = re.compile(r"\b(typically|usually|often|generally)\b", re.IGNORECASE)
+DEMONYM_RE = re.compile(
+    r"^PersonX\s+(?:Egyptian|Jordanian|Palestinian|Saudi|Emirati|UAE|Moroccan|"
+    r"Tunisian|Sudanese|Kuwaiti|Qatari|Omani|Bahraini|Lebanese|Syrian|Iraqi|"
+    r"Libyan|Algerian|Yemeni)\b",
+    re.IGNORECASE,
+)
 
 
 def alpha_ratio(text: str) -> float:
@@ -26,8 +32,9 @@ def is_bad_head(
     max_words: int,
     reject_other_persons: bool,
     reject_arabic: bool,
-    reject_personx_the: bool,
+    reject_personx_article: bool,
     reject_adverbs: bool,
+    reject_demonyms: bool,
 ) -> bool:
     if "/" in head or "\\" in head:
         return True
@@ -37,9 +44,11 @@ def is_bad_head(
         return True
     if reject_other_persons and re.search(r"\bPerson[YZ]\b", head, flags=re.I):
         return True
-    if reject_personx_the and PERSONX_THE_RE.search(head):
+    if reject_personx_article and PERSONX_ARTICLE_RE.search(head):
         return True
     if reject_adverbs and ADVERB_RE.search(head):
+        return True
+    if reject_demonyms and DEMONYM_RE.search(head):
         return True
     if max_words and len(head.split()) > max_words:
         return True
@@ -55,8 +64,9 @@ def main() -> None:
     parser.add_argument("--reject-non-ascii", action="store_true")
     parser.add_argument("--reject-arabic", action="store_true")
     parser.add_argument("--reject-other-persons", action="store_true")
-    parser.add_argument("--reject-personx-the", action="store_true")
+    parser.add_argument("--reject-personx-article", action="store_true")
     parser.add_argument("--reject-adverbs", action="store_true")
+    parser.add_argument("--reject-demonyms", action="store_true")
     parser.add_argument("--min-alpha-ratio", type=float, default=0.0)
     parser.add_argument("--max-words", type=int, default=0)
     args = parser.parse_args()
@@ -81,8 +91,9 @@ def main() -> None:
                 args.max_words,
                 args.reject_other_persons,
                 args.reject_arabic,
-                args.reject_personx_the,
+                args.reject_personx_article,
                 args.reject_adverbs,
+                args.reject_demonyms,
             ):
                 dropped += 1
                 continue

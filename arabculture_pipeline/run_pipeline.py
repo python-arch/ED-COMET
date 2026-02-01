@@ -323,6 +323,7 @@ def generate_heads(
         "- One event, one sentence.\n"
         "- No stereotypes, no moral judgement.\n"
         "- Include cultural details only if explicitly implied.\n"
+        "- Start with \"PersonX\" followed by a verb (not \"PersonX The/A/An\").\n"
         "- Do not end the head with punctuation.\n"
     )
 

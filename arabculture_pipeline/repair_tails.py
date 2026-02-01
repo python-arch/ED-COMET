@@ -38,6 +38,39 @@ SHORT_OK = {"to", "a", "an", "i", "of", "in", "on", "at", "is", "be", "as", "by"
 TO_RELATIONS = {"xIntent", "xNeed", "xWant", "oWant"}
 EFFECT_RELATIONS = {"xEffect", "oEffect"}
 REACT_RELATIONS = {"xReact", "oReact"}
+COMMON_FIXES = {
+    "pends": "spends",
+    "hares": "shares",
+    "ancer": "dancer",
+    "alad": "salad",
+    "preads": "spreads",
+    "iligent": "diligent",
+    "pices": "spices",
+    "ates": "dates",
+    "aloona": "saloona",
+    "iscerning": "discerning",
+}
+ATTR_FIXES = {
+    "killed": "skilled",
+}
+FOOD_CONTEXT = {
+    "meal",
+    "food",
+    "chef",
+    "chefs",
+    "dinner",
+    "lunch",
+    "breakfast",
+    "dish",
+    "dishes",
+    "cook",
+    "cooking",
+    "kitchen",
+    "recipe",
+    "recipes",
+    "restaurant",
+    "taste",
+}
 
 LOGGER = logging.getLogger("repair_tails")
 
@@ -70,6 +103,9 @@ def looks_suspicious(text: str) -> bool:
         return True
     if len(short_bad) >= 2:
         return True
+    for tok in tokens:
+        if tok in COMMON_FIXES or tok in ATTR_FIXES:
+            return True
     for tok in tokens:
         if looks_like_missing_leading_letter(tok):
             return True
@@ -140,6 +176,20 @@ def validate_tail(rel: str, tail: str) -> bool:
     return True
 
 
+def apply_common_fixes(text: str, rel: str) -> str:
+    fixed = text
+    for bad, good in COMMON_FIXES.items():
+        fixed = re.sub(rf"\\b{re.escape(bad)}\\b", good, fixed, flags=re.IGNORECASE)
+    if rel == "xAttr":
+        for bad, good in ATTR_FIXES.items():
+            fixed = re.sub(rf"\\b{re.escape(bad)}\\b", good, fixed, flags=re.IGNORECASE)
+    norm = normalize_text(fixed)
+    if "inner" in norm.split():
+        if any(w in norm.split() for w in FOOD_CONTEXT):
+            fixed = re.sub(r"\\binner\\b", "dinner", fixed, flags=re.IGNORECASE)
+    return fixed
+
+
 def format_chat(tokenizer, system: str, user: str) -> str:
     if hasattr(tokenizer, "apply_chat_template"):
         msgs = [
@@ -174,6 +224,7 @@ def main() -> None:
     original_map: Dict[Tuple[int, str, int], str] = {}
     total = 0
     flagged = 0
+    fixed = 0
 
     with open(args.input, "r", encoding="utf-8") as f:
         for line in f:
@@ -187,12 +238,17 @@ def main() -> None:
             tails = row.get(rel, []) or []
             for t_idx, tail in enumerate(tails):
                 total += 1
+                new_tail = apply_common_fixes(tail, rel)
+                if new_tail != tail:
+                    rows[row_idx][rel][t_idx] = new_tail
+                    tail = new_tail
+                    fixed += 1
                 if looks_suspicious(tail):
                     flagged += 1
                     repair_map[(row_idx, rel, t_idx)] = tail
                     original_map[(row_idx, rel, t_idx)] = tail
 
-    LOGGER.info("total tails=%d flagged=%d", total, flagged)
+    LOGGER.info("total tails=%d fixed=%d flagged=%d", total, fixed, flagged)
     if args.dry_run or not repair_map:
         with open(args.output, "w", encoding="utf-8") as f:
             for row in rows:

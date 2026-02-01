@@ -150,6 +150,9 @@ def iter_data_tokens(data_dir):
 
 ckpt = torch.load(ckpt_path, map_location="cpu")
 state = ckpt["model"] if "model" in ckpt else ckpt
+old_vocab_size = None
+if "encoder.embed_tokens.weight" in state:
+    old_vocab_size = state["encoder.embed_tokens.weight"].shape[0]
 
 d = load_dict_from_checkpoint(ckpt_path)
 if d is not None:
@@ -179,8 +182,9 @@ else:
         data_tokens = [t for t, c in counts.items() if c >= min_freq]
         data_tokens = sorted(data_tokens, key=lambda x: (-counts[x], x))
         to_add.extend([t for t in data_tokens if t not in vocab_set])
-    orig_vocab_size = len(vocab)
-    new_vocab_size = orig_vocab_size + len(to_add)
+    dict_vocab_size = len(vocab)
+    orig_vocab_size = dict_vocab_size
+    new_vocab_size = dict_vocab_size + len(to_add)
     out_dict.parent.mkdir(parents=True, exist_ok=True)
     with out_dict.open("w", encoding="utf-8") as f:
         with dict_path.open("r", encoding="utf-8") as src:
@@ -217,10 +221,16 @@ def expand_bias(key, new_size):
     new_b[:old_size] = b
     state[key] = new_b
 
-if "encoder.embed_tokens.weight" in state:
-    old = state["encoder.embed_tokens.weight"].shape[0]
-    if old != orig_vocab_size:
-        raise ValueError(f"dict size {orig_vocab_size} != encoder vocab size {old}")
+if old_vocab_size is not None and old_vocab_size != orig_vocab_size:
+    if old_vocab_size > new_vocab_size:
+        raise ValueError(
+            f"dict size {orig_vocab_size} < encoder vocab size {old_vocab_size}; "
+            "provide a dict with at least the checkpoint vocab size"
+        )
+    print(
+        f"Warning: dict size {orig_vocab_size} != encoder vocab size {old_vocab_size}. "
+        f"Expanding to {new_vocab_size} using dict tokens."
+    )
 
 expand_weight("encoder.embed_tokens.weight", new_vocab_size)
 expand_weight("decoder.embed_tokens.weight", new_vocab_size)

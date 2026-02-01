@@ -164,3 +164,32 @@ You can also lower the sampling temperature for cleaner generations:
 ```bash
 --tail-temp-base 0.5 --tail-temp-extra 0.6
 ```
+
+## Head filtering (optional)
+
+Remove noisy heads (slashes, low alpha ratio) before tails:
+
+```bash
+python arabculture_pipeline/filter_heads.py \
+  --input /path/to/output/arabculture_atomic/heads.jsonl \
+  --output /path/to/output/arabculture_atomic/heads.filtered.jsonl \
+  --min-alpha-ratio 0.6 \
+  --max-words 16 \
+  --reject-other-persons
+```
+
+Then run tails-only with `--heads-file heads.filtered.jsonl`.
+
+## Tail repair (optional)
+
+Light spelling/grammar correction for suspicious tails only:
+
+```bash
+python arabculture_pipeline/repair_tails.py \
+  --input /path/to/output/arabculture_atomic/atomic_full.train.jsonl \
+  --output /path/to/output/arabculture_atomic/atomic_full.train.repaired.jsonl \
+  --model Qwen/Qwen2.5-14B-Instruct \
+  --tp-size 1
+```
+
+Repeat for val/test if desired, then rebuild `.source/.target` from the repaired JSONL.

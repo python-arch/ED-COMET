@@ -353,7 +353,7 @@ def generate_heads(
         head = obj["head"].strip()
         if head:
             head = head.strip().rstrip(".!?")
-            head = re.sub(r"^personx[\\s:,-]*", "", head, flags=re.I).strip()
+            head = re.sub(r"^personx[\s:,-]*", "", head, flags=re.I).strip()
             if head:
                 head = re.split(r"[.!?]", head, maxsplit=1)[0].strip()
                 head = "PersonX " + head

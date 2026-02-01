@@ -21,9 +21,10 @@ ADVERB_RE = re.compile(r"\b(typically|usually|often|generally)\b", re.IGNORECASE
 DEMONYM_RE = re.compile(
     r"^PersonX\s+(?:Egyptian|Jordanian|Palestinian|Saudi|Emirati|UAE|Moroccan|"
     r"Tunisian|Sudanese|Kuwaiti|Qatari|Omani|Bahraini|Lebanese|Syrian|Iraqi|"
-    r"Libyan|Algerian|Yemeni)\b",
+    r"Libyan|Algerian|Yemeni)s?\b",
     re.IGNORECASE,
 )
+NAME_RE = re.compile(r"^PersonX\s+[A-Z][a-z]{2,}\b")
 
 
 def extract_json(text: str):
@@ -83,6 +84,8 @@ def looks_suspicious(head: str, max_words: int) -> bool:
     if ADVERB_RE.search(head):
         return True
     if max_words and len(head.split()) > max_words:
+        return True
+    if NAME_RE.search(head):
         return True
     if not head.lower().startswith("personx"):
         return True
@@ -154,7 +157,8 @@ def main() -> None:
     system = (
         "You are a data correction engine. Return ONLY valid JSON. "
         "Rewrite the head into a single English event. Start with PersonX + verb. "
-        "No Arabic. No 'PersonX The/A/An'. No statistics or 'typically/usually'."
+        "Remove personal names. No Arabic. No 'PersonX The/A/An'. "
+        "No statistics or 'typically/usually'."
     )
 
     prompts = []

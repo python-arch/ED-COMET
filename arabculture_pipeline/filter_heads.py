@@ -12,9 +12,10 @@ ADVERB_RE = re.compile(r"\b(typically|usually|often|generally)\b", re.IGNORECASE
 DEMONYM_RE = re.compile(
     r"^PersonX\s+(?:Egyptian|Jordanian|Palestinian|Saudi|Emirati|UAE|Moroccan|"
     r"Tunisian|Sudanese|Kuwaiti|Qatari|Omani|Bahraini|Lebanese|Syrian|Iraqi|"
-    r"Libyan|Algerian|Yemeni)\b",
+    r"Libyan|Algerian|Yemeni)s?\b",
     re.IGNORECASE,
 )
+NAME_RE = re.compile(r"^PersonX\s+[A-Z][a-z]{2,}\b")
 
 
 def alpha_ratio(text: str) -> float:
@@ -47,6 +48,8 @@ def is_bad_head(
     if reject_personx_article and PERSONX_ARTICLE_RE.search(head):
         return True
     if reject_adverbs and ADVERB_RE.search(head):
+        return True
+    if NAME_RE.search(head):
         return True
     if reject_demonyms and DEMONYM_RE.search(head):
         return True

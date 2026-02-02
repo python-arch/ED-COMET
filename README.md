@@ -1,136 +1,147 @@
-# BART Finetuning on ATOMIC2020 - Complete Guide
+# Qwen2-VL EG-Atomic Fine-Tuning and Evaluation
 
-This guide walks through finetuning pretrained BART model (from fairseq) on the ATOMIC2020 dataset using COMET's training methodology.
+This repository contains a project for fine-tuning **Qwen2-VL** on multimodal ATOMIC-style datasets and performing **slot-filling evaluation** on events and images. It supports both **image-based inference** and **text-field masking evaluation**.
 
-## Prerequisites
+---
 
-- BART checkpoint pretrained with fairseq (denoising objective)
-- ATOMIC2020 dataset (download from [Google Drive](https://drive.google.com/file/d/1uuY0Y_s8dhxdsoOe8OHRgsqf-9qJIai7/view?usp=drive_link))
-- Python 3.x with PyTorch and Transformers
+## Project Structure
 
-## Step-by-Step Process
-
-### Step 1: Convert Fairseq BART to HuggingFace Format
-
-Since the finetuning script uses HuggingFace Transformers, we need to convert our fairseq checkpoint first:
-
-```bash
-# Install transformers if not already installed
-pip install transformers torch
-
-# Convert fairseq checkpoint to HuggingFace format
-python -m transformers.models.bart.convert_bart_original_pytorch_checkpoint_to_pytorch \
-    --fairseq_path /path/to/your/fairseq/checkpoint.pt \
-    --pytorch_dump_folder_path ./checkpoints/bart_hf
+```
+qwen2_vl_atomic/
+│
+├── data/
+│   ├── fix_image_paths.py      # Script to fix JSON image paths for Colab
+│   ├── qwen3_train.json        # Original dataset
+│   └── qwen3_colab_train.json  # Fixed dataset with correct paths for google colab usage
+│
+├── training/
+│   ├── train.py                # Main fine-tuning script
+│   ├── collator.py             # Custom data collator for multimodal data
+│   ├── lora_config.py          # LoRA configuration
+│   └── settings.py             # Centralized paths and hyperparameters
+│
+├── inference/
+│   ├── image_inference.py      # Test the model on individual images
+│   └── slot_filling.py         # Slot-filling for masked text fields
+│
+├── evaluation/
+│   └── evaluate_atomic.py      # Evaluate model predictions vs ground truth
+│
+├── requirements.txt
+└── README.md
 ```
 
-**Note:** Replace `/path/to/your/fairseq/checkpoint.pt` with the actual path to our pretrained checkpoint.
+---
 
-### Step 2: Extract ATOMIC2020 Dataset
+## Features
 
-Extract the downloaded ATOMIC2020 zip file:
+* Fine-tune **Qwen2-VL-2B-Instruct** with **LoRA** for multimodal understanding.
+* Automatically injects **image paths** into JSON datasets for Colab compatibility.
+* Supports **image-based ATOMIC social relation inference**.
+* Slot-filling evaluation for masked event fields.
+* Computes **Exact Match** and **Overlap (%)** metrics for predicted fields.
 
-```bash
-# Extract the dataset
-unzip atomic2020_data-feb2021.zip -d ./atomic2020_data-feb2021
+---
 
-# Check the contents
-ls -la ./atomic2020_data-feb2021/
-# Should contain: train.tsv, dev.tsv, test.tsv, README.md, LICENSE, etc.
-```
+## Installation
 
-The TSV files have the format:
-- Column 1: `head` (head event, e.g., "PersonX goes to the store")
-- Column 2: `relation` (e.g., "xIntent", "xNeed", "oEffect")
-- Column 3: `tail` (tail event, e.g., "to buy groceries")
-
-### Step 3: Convert ATOMIC TSV to BART Training Format
-
-Convert the TSV files to `.source` and `.target` format required by the training script:
+Install required packages:
 
 ```bash
-python scripts/prepare_atomic_for_bart.py \
-    --input_dir ./atomic2020_data-feb2021 \
-    --output_dir ./data/atomic_bart
+pip install -r requirements.txt
 ```
 
-This creates:
-- `train.source` / `train.target` (training set)
-- `val.source` / `val.target` (validation set, from dev.tsv)
-- `test.source` / `test.target` (test set)
+> Note: Make sure you have a GPU runtime for fine-tuning.
 
-**Format:**
-- `.source` files: `"head_event relation"` (e.g., "PersonX goes to the store xIntent")
-- `.target` files: `"tail_event"` (e.g., "to buy groceries")
+---
 
-**Optional:** Add `--add_gen_token` flag to append `[GEN]` to source (for demo model compatibility):
-```bash
-python scripts/prepare_atomic_for_bart.py \
-    --input_dir ./atomic2020_data-feb2021 \
-    --output_dir ./data/atomic_bart \
-    --add_gen_token
-```
+## Data Preparation
 
-### Step 4: Finetune BART on ATOMIC2020
-
-Run the finetuning script:
+1. Place your images in `data/gen_photos/`.
+2. Update your dataset paths inside `data/fix_image_paths.py`.
+3. Run:
 
 ```bash
-CUDA_VISIBLE_DEVICES=0 python models/comet_atomic2020_bart/finetune.py \
-    --task summarization \
-    --num_workers 2 \
-    --learning_rate=1e-5 \
-    --gpus 1 \
-    --do_train \
-    --do_predict \
-    --n_val 100 \
-    --val_check_interval 1.0 \
-    --sortish_sampler \
-    --max_source_length=48 \
-    --max_target_length=24 \
-    --val_max_target_length=24 \
-    --test_max_target_length=24 \
-    --data_dir ./data/atomic_bart \
-    --train_batch_size=32 \
-    --eval_batch_size=32 \
-    --output_dir ./results/bart_atomic_finetune \
-    --num_train_epochs=10 \
-    --model_name_or_path ./checkpoints/bart_hf \
-    --atomic
+python data/fix_image_paths.py
 ```
 
-**Important Parameters:**
-- `--model_name_or_path`: Path to your converted HuggingFace BART checkpoint
-- `--data_dir`: Directory containing `.source` and `.target` files
-- `--atomic`: **CRITICAL** - Adds ATOMIC relation tokens to the tokenizer
-- `--num_train_epochs`: Number of training epochs (adjust as needed)
-- `--train_batch_size`: Adjust based on your GPU memory
+This will generate `qwen3_colab_train.json` with updated image paths.
 
-### Step 5: Use the Complete Workflow Script
+---
 
-Alternatively, you can use the all-in-one script (edit paths first):
+## Fine-Tuning
+
+Run the training script:
 
 ```bash
-# Edit the script to set your paths
-nano scripts/finetune_bart_on_atomic.sh
-
-# Run the complete workflow
-bash scripts/finetune_bart_on_atomic.sh
+python training/train.py
 ```
 
-## Quick Start Commands
+Key points:
+
+* Uses **4-bit quantization** for memory efficiency.
+* Fine-tunes with **LoRA** on selected modules.
+* Output saved in `training.OUTPUT_DIR`.
+
+---
+
+## Image-Based Inference
+
+Test the fine-tuned model on images:
 
 ```bash
-# 1. Convert fairseq checkpoint
-python -m transformers.models.bart.convert_bart_original_pytorch_checkpoint_to_pytorch \
-    --fairseq_path <your_checkpoint.pt> \
-    --pytorch_dump_folder_path ./checkpoints/bart_hf
-
-# 2. Prepare ATOMIC data
-python scripts/prepare_atomic_for_bart.py \
-    --input_dir ./atomic2020_data-feb2021 \
-    --output_dir ./data/atomic_bart
-
-# 3. Finetune BART
-bash scripts/finetune_bart_on_atomic.sh
+python inference/image_inference.py
 ```
+
+* Generates ATOMIC-style social relations per image.
+* Works with `.png`, `.jpg`, and `.jpeg` images in the specified folder.
+
+---
+
+## Slot-Filling Evaluation
+
+Evaluate masked fields in events:
+
+```bash
+python evaluation/evaluate_atomic.py
+```
+
+* Fields include: `oEffect`, `oReact`, `oWant`, `xAttr`, `xEffect`, `xIntent`, `xNeed`, `xReact`, `xWant`.
+* Outputs **Exact Match** and **Overlap (%)** for each field.
+
+---
+
+## Configuration
+
+Modify paths, model IDs, or hyperparameters in:
+
+* `training/settings.py` – paths and training options.
+* `training/lora_config.py` – LoRA hyperparameters.
+
+---
+
+### Test Results
+
+Example evaluation of masked fields using the fine-tuned model:
+
+| Field   | GroundTruth                                | Predicted                     | Overlap(%) |
+| ------- | ------------------------------------------ | ----------------------------- | ---------- |
+| xNeed   | ['cleaning supplies', 'organize schedule'] | ['cleaning supplies']         | 75.0       |
+| xIntent | ['to prepare mosque for Eid worship']      | ['to prepare mosque for Eid'] | 80.0       |
+| xReact  | ['satisfied', 'humble']                    | ['satisfied', 'modest']       | 60.0       |
+
+---
+
+## Notes
+
+* Ensure `torch` and `transformers` versions are compatible with your GPU.
+* Disable **W&B logging** via `settings.py` for Colab.
+* Image-based and text-based evaluations can run independently.
+
+---
+
+## References
+
+* [Qwen2-VL Model](https://huggingface.co/Qwen/Qwen2-VL-2B-Instruct)
+* [LoRA: Low-Rank Adaptation of Large Language Models](https://arxiv.org/abs/2106.09685)
+* [Transformers Documentation](https://huggingface.co/docs/transformers)

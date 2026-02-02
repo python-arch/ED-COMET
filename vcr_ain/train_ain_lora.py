@@ -113,6 +113,15 @@ class VCRCollator:
         full_inputs = self.processor(**full_kwargs)
         prompt_inputs = self.processor(**prompt_kwargs)
 
+        if self.max_length and "image_grid_thw" in full_inputs:
+            image_tokens = full_inputs["image_grid_thw"].prod(dim=1).to(torch.long)
+            max_image_tokens = int(image_tokens.max().item())
+            if max_image_tokens > self.max_length:
+                raise ValueError(
+                    f"max_length ({self.max_length}) is smaller than image tokens ({max_image_tokens}). "
+                    "Increase --max-length or reduce image resolution."
+                )
+
         if self.max_length and full_inputs["input_ids"].size(1) > self.max_length:
             seq_len = full_inputs["input_ids"].size(1)
             for key, value in list(full_inputs.items()):

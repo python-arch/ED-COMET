@@ -94,15 +94,13 @@ class VCRCollator:
         full_kwargs: Dict[str, Any] = {
             "text": full_texts,
             "padding": True,
-            "truncation": True,
-            "max_length": self.max_length,
+            "truncation": False,
             "return_tensors": "pt",
         }
         prompt_kwargs: Dict[str, Any] = {
             "text": prompt_texts,
             "padding": True,
-            "truncation": True,
-            "max_length": self.max_length,
+            "truncation": False,
             "return_tensors": "pt",
         }
         if has_images:
@@ -115,11 +113,19 @@ class VCRCollator:
         full_inputs = self.processor(**full_kwargs)
         prompt_inputs = self.processor(**prompt_kwargs)
 
+        if self.max_length and full_inputs["input_ids"].size(1) > self.max_length:
+            seq_len = full_inputs["input_ids"].size(1)
+            for key, value in list(full_inputs.items()):
+                if isinstance(value, torch.Tensor) and value.dim() == 2 and value.size(1) == seq_len:
+                    full_inputs[key] = value[:, : self.max_length]
+
         input_ids = full_inputs["input_ids"]
         attention_mask = full_inputs["attention_mask"]
         labels = input_ids.clone()
 
         prompt_lens = prompt_inputs["attention_mask"].sum(dim=1).to(torch.long)
+        if self.max_length:
+            prompt_lens = torch.clamp(prompt_lens, max=input_ids.size(1))
         for i, plen in enumerate(prompt_lens.tolist()):
             labels[i, : min(plen, labels.size(1))] = -100
 

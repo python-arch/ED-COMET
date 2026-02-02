@@ -83,16 +83,14 @@ class VCRCollator:
                 images=image_inputs,
                 videos=video_inputs,
                 return_tensors="pt",
-                truncation=True,
-                max_length=self.max_length,
+                truncation=False,
             )
             full_inputs = self.processor(
                 text=[full_text],
                 images=image_inputs,
                 videos=video_inputs,
                 return_tensors="pt",
-                truncation=True,
-                max_length=self.max_length,
+                truncation=False,
             )
 
             input_ids = full_inputs["input_ids"][0]
@@ -101,6 +99,12 @@ class VCRCollator:
             prompt_len = min(prompt_inputs["input_ids"].size(1), input_ids.size(0))
             labels = input_ids.clone()
             labels[:prompt_len] = -100
+
+            if self.max_length and input_ids.size(0) > self.max_length:
+                input_ids = input_ids[: self.max_length]
+                attention_mask = attention_mask[: self.max_length]
+                labels = labels[: self.max_length]
+                prompt_len = min(prompt_len, self.max_length)
 
             input_ids_list.append(input_ids)
             attention_list.append(attention_mask)

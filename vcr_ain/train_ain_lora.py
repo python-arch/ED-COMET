@@ -64,78 +64,59 @@ class VCRCollator:
         self.processor = processor
         self.input_format = input_format
         self.max_length = max_length
-        self.pad_id = processor.tokenizer.pad_token_id
 
     def __call__(self, batch: List[Dict[str, Any]]) -> Dict[str, torch.Tensor]:
-        input_ids_list = []
-        attention_list = []
-        labels_list = []
-        vision_values = []
-        grid_thw = []
+        prompt_texts: List[str] = []
+        full_texts: List[str] = []
+        images: List[Any] = []
+        videos: List[Any] = []
 
         for rec in batch:
-            prompt_text, full_text, image_path, messages_no_assistant = _build_texts(
+            prompt_text, full_text, _image_path, messages_no_assistant = _build_texts(
                 self.processor, rec, self.input_format
             )
+            prompt_texts.append(prompt_text)
+            full_texts.append(full_text)
+
             image_inputs, video_inputs = process_vision_info(messages_no_assistant)
-            prompt_inputs = self.processor(
-                text=[prompt_text],
-                images=image_inputs,
-                videos=video_inputs,
-                return_tensors="pt",
-                truncation=False,
-            )
-            full_inputs = self.processor(
-                text=[full_text],
-                images=image_inputs,
-                videos=video_inputs,
-                return_tensors="pt",
-                truncation=False,
-            )
+            if image_inputs:
+                images.append(image_inputs if len(image_inputs) > 1 else image_inputs[0])
+            else:
+                images.append(None)
+            if video_inputs:
+                videos.append(video_inputs if len(video_inputs) > 1 else video_inputs[0])
+            else:
+                videos.append(None)
 
-            input_ids = full_inputs["input_ids"][0]
-            attention_mask = full_inputs["attention_mask"][0]
+        full_inputs = self.processor(
+            text=full_texts,
+            images=images,
+            videos=videos,
+            padding=True,
+            truncation=True,
+            max_length=self.max_length,
+            return_tensors="pt",
+        )
+        prompt_inputs = self.processor(
+            text=prompt_texts,
+            images=images,
+            videos=videos,
+            padding=True,
+            truncation=True,
+            max_length=self.max_length,
+            return_tensors="pt",
+        )
 
-            prompt_len = min(prompt_inputs["input_ids"].size(1), input_ids.size(0))
-            labels = input_ids.clone()
-            labels[:prompt_len] = -100
+        input_ids = full_inputs["input_ids"]
+        attention_mask = full_inputs["attention_mask"]
+        labels = input_ids.clone()
 
-            if self.max_length and input_ids.size(0) > self.max_length:
-                input_ids = input_ids[: self.max_length]
-                attention_mask = attention_mask[: self.max_length]
-                labels = labels[: self.max_length]
-                prompt_len = min(prompt_len, self.max_length)
+        prompt_lens = prompt_inputs["attention_mask"].sum(dim=1).to(torch.long)
+        for i, plen in enumerate(prompt_lens.tolist()):
+            labels[i, : min(plen, labels.size(1))] = -100
 
-            input_ids_list.append(input_ids)
-            attention_list.append(attention_mask)
-            labels_list.append(labels)
-
-            if "pixel_values" in full_inputs:
-                vision_values.append(full_inputs["pixel_values"][0])
-            if "image_grid_thw" in full_inputs:
-                grid_thw.append(full_inputs["image_grid_thw"][0])
-
-        max_len = max(x.size(0) for x in input_ids_list)
-        def pad_1d(x, value):
-            pad_len = max_len - x.size(0)
-            if pad_len <= 0:
-                return x
-            return torch.cat([x, x.new_full((pad_len,), value)], dim=0)
-
-        input_ids = torch.stack([pad_1d(x, self.pad_id) for x in input_ids_list])
-        attention_mask = torch.stack([pad_1d(x, 0) for x in attention_list])
-        labels = torch.stack([pad_1d(x, -100) for x in labels_list])
-
-        batch_out: Dict[str, torch.Tensor] = {
-            "input_ids": input_ids,
-            "attention_mask": attention_mask,
-            "labels": labels,
-        }
-
-        if vision_values:
-            batch_out["pixel_values"] = torch.stack(vision_values)
-        if grid_thw:
-            batch_out["image_grid_thw"] = torch.stack(grid_thw)
+        batch_out: Dict[str, torch.Tensor] = dict(full_inputs)
+        batch_out["labels"] = labels
         return batch_out
 
 

@@ -36,7 +36,6 @@ qwen2_vl_atomic/
 ## Features
 
 * Fine-tune **Qwen2-VL-2B-Instruct** with **LoRA** for multimodal understanding.
-* Automatically injects **image paths** into JSON datasets for Colab compatibility.
 * Supports **image-based ATOMIC social relation inference**.
 * Slot-filling evaluation for masked event fields.
 * Computes **Exact Match** and **Overlap (%)** metrics for predicted fields.

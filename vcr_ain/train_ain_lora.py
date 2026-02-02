@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import argparse
+import inspect
 import json
 from typing import Any, Dict, List, Tuple
 
@@ -188,7 +189,7 @@ def main() -> None:
 
     collator = VCRCollator(processor, args.input_format, args.max_length)
 
-    train_args = TrainingArguments(
+    train_kwargs = dict(
         output_dir=args.output_dir,
         per_device_train_batch_size=args.per_device_batch_size,
         per_device_eval_batch_size=args.per_device_batch_size,
@@ -198,7 +199,6 @@ def main() -> None:
         warmup_steps=args.warmup_steps,
         logging_steps=args.logging_steps,
         save_steps=args.save_steps,
-        evaluation_strategy="steps",
         eval_steps=args.save_steps,
         save_total_limit=2,
         fp16=args.fp16,
@@ -206,6 +206,13 @@ def main() -> None:
         remove_unused_columns=False,
         report_to=[],
     )
+    sig = inspect.signature(TrainingArguments.__init__)
+    if "evaluation_strategy" in sig.parameters:
+        train_kwargs["evaluation_strategy"] = "steps"
+    else:
+        train_kwargs["eval_strategy"] = "steps"
+
+    train_args = TrainingArguments(**train_kwargs)
 
     trainer = Trainer(
         model=model,

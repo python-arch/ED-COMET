@@ -88,24 +88,32 @@ class VCRCollator:
             else:
                 videos.append(None)
 
-        full_inputs = self.processor(
-            text=full_texts,
-            images=images,
-            videos=videos,
-            padding=True,
-            truncation=True,
-            max_length=self.max_length,
-            return_tensors="pt",
-        )
-        prompt_inputs = self.processor(
-            text=prompt_texts,
-            images=images,
-            videos=videos,
-            padding=True,
-            truncation=True,
-            max_length=self.max_length,
-            return_tensors="pt",
-        )
+        has_images = any(img is not None for img in images)
+        has_videos = any(vid is not None for vid in videos)
+
+        full_kwargs: Dict[str, Any] = {
+            "text": full_texts,
+            "padding": True,
+            "truncation": True,
+            "max_length": self.max_length,
+            "return_tensors": "pt",
+        }
+        prompt_kwargs: Dict[str, Any] = {
+            "text": prompt_texts,
+            "padding": True,
+            "truncation": True,
+            "max_length": self.max_length,
+            "return_tensors": "pt",
+        }
+        if has_images:
+            full_kwargs["images"] = images
+            prompt_kwargs["images"] = images
+        if has_videos:
+            full_kwargs["videos"] = videos
+            prompt_kwargs["videos"] = videos
+
+        full_inputs = self.processor(**full_kwargs)
+        prompt_inputs = self.processor(**prompt_kwargs)
 
         input_ids = full_inputs["input_ids"]
         attention_mask = full_inputs["attention_mask"]

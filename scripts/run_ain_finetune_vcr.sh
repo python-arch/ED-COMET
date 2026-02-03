@@ -5,7 +5,7 @@ VCR_ROOT="/home/ahmedjaheen/data/vcr1"
 OUT_TRAIN="/home/ahmedjaheen/data/vcr1_out"
 OUT_VAL="/home/ahmedjaheen/data/vcr1_out_val"
 AIN_MODEL="MBZUAI/AIN"
-MAX_LENGTH=4096
+MAX_LENGTH=8192
 
 # 1) Preprocess train + val
 python vcr_ain/preprocess_vcr.py \

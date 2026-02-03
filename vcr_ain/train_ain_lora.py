@@ -59,11 +59,73 @@ def _build_texts(processor, rec: Dict[str, Any], input_format: str) -> Tuple[str
     return prompt_text, full_text, image_path, messages
 
 
+def _resize_pil_image(img: Any, min_pixels: int | None, max_pixels: int | None) -> Any:
+    if min_pixels is None and max_pixels is None:
+        return img
+    try:
+        from PIL import Image
+    except Exception:
+        return img
+    if not isinstance(img, Image.Image):
+        return img
+    width, height = img.size
+    pixels = width * height
+    scale = 1.0
+    if max_pixels is not None and pixels > max_pixels:
+        scale = min(scale, (max_pixels / pixels) ** 0.5)
+    if min_pixels is not None and pixels < min_pixels:
+        scale = max(scale, (min_pixels / pixels) ** 0.5)
+    if scale == 1.0:
+        return img
+    new_w = max(1, int(round(width * scale)))
+    new_h = max(1, int(round(height * scale)))
+    if (new_w, new_h) == (width, height):
+        return img
+    resample = Image.BICUBIC if hasattr(Image, "BICUBIC") else Image.NEAREST
+    return img.resize((new_w, new_h), resample=resample)
+
+
+def _resize_image_input(image_input: Any, min_pixels: int | None, max_pixels: int | None) -> Any:
+    if image_input is None:
+        return None
+    if isinstance(image_input, (list, tuple)):
+        return [_resize_image_input(x, min_pixels, max_pixels) for x in image_input]
+    if isinstance(image_input, dict):
+        if "image" in image_input:
+            new_image = _resize_image_input(image_input["image"], min_pixels, max_pixels)
+            if new_image is image_input["image"]:
+                return image_input
+            updated = dict(image_input)
+            updated["image"] = new_image
+            return updated
+        return image_input
+    if isinstance(image_input, str):
+        try:
+            from PIL import Image
+        except Exception:
+            return image_input
+        try:
+            img = Image.open(image_input).convert("RGB")
+        except Exception:
+            return image_input
+        return _resize_pil_image(img, min_pixels, max_pixels)
+    return _resize_pil_image(image_input, min_pixels, max_pixels)
+
+
 class VCRCollator:
-    def __init__(self, processor, input_format: str, max_length: int):
+    def __init__(
+        self,
+        processor,
+        input_format: str,
+        max_length: int,
+        image_min_pixels: int | None,
+        image_max_pixels: int | None,
+    ):
         self.processor = processor
         self.input_format = input_format
         self.max_length = max_length
+        self.image_min_pixels = image_min_pixels
+        self.image_max_pixels = image_max_pixels
 
     def __call__(self, batch: List[Dict[str, Any]]) -> Dict[str, torch.Tensor]:
         prompt_texts: List[str] = []
@@ -79,12 +141,22 @@ class VCRCollator:
             full_texts.append(full_text)
 
             image_inputs, video_inputs = process_vision_info(messages_no_assistant)
+            if self.image_min_pixels is not None or self.image_max_pixels is not None:
+                image_inputs = _resize_image_input(
+                    image_inputs, self.image_min_pixels, self.image_max_pixels
+                )
             if image_inputs:
-                images.append(image_inputs if len(image_inputs) > 1 else image_inputs[0])
+                if isinstance(image_inputs, (list, tuple)):
+                    images.append(image_inputs if len(image_inputs) > 1 else image_inputs[0])
+                else:
+                    images.append(image_inputs)
             else:
                 images.append(None)
             if video_inputs:
-                videos.append(video_inputs if len(video_inputs) > 1 else video_inputs[0])
+                if isinstance(video_inputs, (list, tuple)):
+                    videos.append(video_inputs if len(video_inputs) > 1 else video_inputs[0])
+                else:
+                    videos.append(video_inputs)
             else:
                 videos.append(None)
 
@@ -212,7 +284,13 @@ def main() -> None:
     train_ds = VCRJsonlDataset(args.train_jsonl)
     valid_ds = VCRJsonlDataset(args.valid_jsonl)
 
-    collator = VCRCollator(processor, args.input_format, args.max_length)
+    collator = VCRCollator(
+        processor,
+        args.input_format,
+        args.max_length,
+        args.image_min_pixels,
+        args.image_max_pixels,
+    )
 
     train_kwargs = dict(
         output_dir=args.output_dir,

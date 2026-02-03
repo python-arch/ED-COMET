@@ -160,6 +160,18 @@ def main() -> None:
     parser.add_argument("--save-steps", type=int, default=500)
     parser.add_argument("--bf16", action="store_true")
     parser.add_argument("--fp16", action="store_true")
+    parser.add_argument(
+        "--image-min-pixels",
+        type=int,
+        default=None,
+        help="Optional lower bound on resized image pixel count.",
+    )
+    parser.add_argument(
+        "--image-max-pixels",
+        type=int,
+        default=None,
+        help="Optional upper bound on resized image pixel count.",
+    )
     parser.add_argument("--lora-r", type=int, default=16)
     parser.add_argument("--lora-alpha", type=int, default=32)
     parser.add_argument("--lora-dropout", type=float, default=0.05)
@@ -173,6 +185,11 @@ def main() -> None:
     processor = AutoProcessor.from_pretrained(args.model)
     if processor.tokenizer.pad_token_id is None:
         processor.tokenizer.pad_token = processor.tokenizer.eos_token
+    if hasattr(processor, "image_processor"):
+        if args.image_min_pixels is not None and hasattr(processor.image_processor, "min_pixels"):
+            processor.image_processor.min_pixels = args.image_min_pixels
+        if args.image_max_pixels is not None and hasattr(processor.image_processor, "max_pixels"):
+            processor.image_processor.max_pixels = args.image_max_pixels
     model = Qwen2VLForConditionalGeneration.from_pretrained(
         args.model,
         torch_dtype=torch.bfloat16 if args.bf16 else (torch.float16 if args.fp16 else None),

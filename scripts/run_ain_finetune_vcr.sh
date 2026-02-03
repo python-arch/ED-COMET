@@ -6,6 +6,7 @@ OUT_TRAIN="/home/ahmedjaheen/data/vcr1_out"
 OUT_VAL="/home/ahmedjaheen/data/vcr1_out_val"
 AIN_MODEL="MBZUAI/AIN"
 MAX_LENGTH=8192
+IMAGE_MAX_PIXELS=1048576
 
 # 1) Preprocess train + val
 python vcr_ain/preprocess_vcr.py \
@@ -39,6 +40,7 @@ python vcr_ain/train_ain_lora.py \
   --model "${AIN_MODEL}" \
   --input-format qwen \
   --max-length "${MAX_LENGTH}" \
+  --image-max-pixels "${IMAGE_MAX_PIXELS}" \
   --bf16 \
   --per-device-batch-size 1 \
   --gradient-accumulation-steps 8 \
@@ -64,6 +66,7 @@ python vcr_ain/train_ain_lora.py \
   --model "${AIN_MODEL}" \
   --input-format qwen \
   --max-length "${MAX_LENGTH}" \
+  --image-max-pixels "${IMAGE_MAX_PIXELS}" \
   --bf16 \
   --per-device-batch-size 1 \
   --gradient-accumulation-steps 8 \

@@ -7,6 +7,8 @@ OUT_VAL="/home/ahmedjaheen/data/vcr1_out_val"
 AIN_MODEL="MBZUAI/AIN"
 MAX_LENGTH=8192
 IMAGE_MAX_PIXELS=1048576
+SUBSET_TRAIN=30000
+SUBSET_VAL=3000
 
 # 1) Preprocess train + val
 python vcr_ain/preprocess_vcr.py \
@@ -32,10 +34,19 @@ python vcr_ain/prepare_ain_sft.py \
   --output "${OUT_VAL}/vcr_qa.sft.jsonl" \
   --format qwen
 
+SFT_TRAIN_QA="${OUT_TRAIN}/vcr_qa.sft.jsonl"
+SFT_VAL_QA="${OUT_VAL}/vcr_qa.sft.jsonl"
+if [[ "${SUBSET_TRAIN}" -gt 0 ]]; then
+  SFT_TRAIN_QA="${OUT_TRAIN}/vcr_qa.sft.${SUBSET_TRAIN}.jsonl"
+  SFT_VAL_QA="${OUT_VAL}/vcr_qa.sft.${SUBSET_VAL}.jsonl"
+  head -n "${SUBSET_TRAIN}" "${OUT_TRAIN}/vcr_qa.sft.jsonl" > "${SFT_TRAIN_QA}"
+  head -n "${SUBSET_VAL}" "${OUT_VAL}/vcr_qa.sft.jsonl" > "${SFT_VAL_QA}"
+fi
+
 # 3) Stage 1: Q→A LoRA finetune
 python vcr_ain/train_ain_lora.py \
-  --train-jsonl "${OUT_TRAIN}/vcr_qa.sft.jsonl" \
-  --valid-jsonl "${OUT_VAL}/vcr_qa.sft.jsonl" \
+  --train-jsonl "${SFT_TRAIN_QA}" \
+  --valid-jsonl "${SFT_VAL_QA}" \
   --output-dir "/home/ahmedjaheen/data/ain_lora_qa" \
   --model "${AIN_MODEL}" \
   --input-format qwen \
@@ -58,10 +69,19 @@ python vcr_ain/prepare_ain_sft.py \
   --output "${OUT_VAL}/vcr_qar.sft.jsonl" \
   --format qwen
 
+SFT_TRAIN_QAR="${OUT_TRAIN}/vcr_qar.sft.jsonl"
+SFT_VAL_QAR="${OUT_VAL}/vcr_qar.sft.jsonl"
+if [[ "${SUBSET_TRAIN}" -gt 0 ]]; then
+  SFT_TRAIN_QAR="${OUT_TRAIN}/vcr_qar.sft.${SUBSET_TRAIN}.jsonl"
+  SFT_VAL_QAR="${OUT_VAL}/vcr_qar.sft.${SUBSET_VAL}.jsonl"
+  head -n "${SUBSET_TRAIN}" "${OUT_TRAIN}/vcr_qar.sft.jsonl" > "${SFT_TRAIN_QAR}"
+  head -n "${SUBSET_VAL}" "${OUT_VAL}/vcr_qar.sft.jsonl" > "${SFT_VAL_QAR}"
+fi
+
 # 5) Stage 2: QA→R LoRA finetune (gold answer)
 python vcr_ain/train_ain_lora.py \
-  --train-jsonl "${OUT_TRAIN}/vcr_qar.sft.jsonl" \
-  --valid-jsonl "${OUT_VAL}/vcr_qar.sft.jsonl" \
+  --train-jsonl "${SFT_TRAIN_QAR}" \
+  --valid-jsonl "${SFT_VAL_QAR}" \
   --output-dir "/home/ahmedjaheen/data/ain_lora_qar" \
   --model "${AIN_MODEL}" \
   --input-format qwen \

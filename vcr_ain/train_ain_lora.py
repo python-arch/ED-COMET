@@ -280,6 +280,13 @@ def main() -> None:
         target_modules=target_modules,
     )
     model = get_peft_model(model, lora_cfg)
+    if hasattr(model, "print_trainable_parameters"):
+        model.print_trainable_parameters()
+    else:
+        trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
+        total = sum(p.numel() for p in model.parameters())
+        pct = 100.0 * trainable / max(total, 1)
+        print(f"Trainable params: {trainable} / {total} ({pct:.2f}%)")
 
     train_ds = VCRJsonlDataset(args.train_jsonl)
     valid_ds = VCRJsonlDataset(args.valid_jsonl)

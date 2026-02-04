@@ -5,8 +5,11 @@ VCR_ROOT="/home/ahmedjaheen/data/vcr1"
 OUT_TRAIN="/home/ahmedjaheen/data/vcr1_out"
 OUT_VAL="/home/ahmedjaheen/data/vcr1_out_val"
 AIN_MODEL="MBZUAI/AIN"
-MAX_LENGTH=8192
-IMAGE_MAX_PIXELS=1048576
+MAX_LENGTH=4096
+IMAGE_MAX_PIXELS=589824
+BATCH_SIZE=4
+GRAD_ACC=4
+NUM_EPOCHS=1
 SUBSET_TRAIN=30000
 SUBSET_VAL=3000
 
@@ -53,10 +56,10 @@ python vcr_ain/train_ain_lora.py \
   --max-length "${MAX_LENGTH}" \
   --image-max-pixels "${IMAGE_MAX_PIXELS}" \
   --bf16 \
-  --per-device-batch-size 1 \
-  --gradient-accumulation-steps 8 \
+  --per-device-batch-size "${BATCH_SIZE}" \
+  --gradient-accumulation-steps "${GRAD_ACC}" \
   --lr 2e-5 \
-  --num-epochs 2
+  --num-epochs "${NUM_EPOCHS}"
 
 # 4) Build SFT JSONL for QA→R
 python vcr_ain/prepare_ain_sft.py \
@@ -88,7 +91,7 @@ python vcr_ain/train_ain_lora.py \
   --max-length "${MAX_LENGTH}" \
   --image-max-pixels "${IMAGE_MAX_PIXELS}" \
   --bf16 \
-  --per-device-batch-size 1 \
-  --gradient-accumulation-steps 8 \
+  --per-device-batch-size "${BATCH_SIZE}" \
+  --gradient-accumulation-steps "${GRAD_ACC}" \
   --lr 2e-5 \
-  --num-epochs 2
+  --num-epochs "${NUM_EPOCHS}"

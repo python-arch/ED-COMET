@@ -54,13 +54,22 @@ def draw_question_boxes(img: Image.Image, question: Any, boxes: Any) -> Image.Im
     return img_copy
 
 
+def select_image_source(ex: dict) -> Any:
+    for key in ("image", "img"):
+        if ex.get(key) is not None:
+            return ex.get(key)
+    if ex.get("img_fn") is not None:
+        return ex.get("img_fn")
+    return None
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Convert EG-VCR split to VCR-style JSONL (Q->A).")
     parser.add_argument("--dataset", default="CulTex-VLM/EG-VCR")
     parser.add_argument("--split", default="train")
     parser.add_argument("--output", required=True)
     parser.add_argument("--images-dir", default="", help="Optional directory to save images.")
-    parser.add_argument("--image-format", default="jpg", help="Image format when saving.")
+    parser.add_argument("--image-format", default="png", help="Image format when saving.")
     parser.add_argument("--draw-boxes", action="store_true", help="Overlay person boxes.")
     parser.add_argument("--max-examples", type=int, default=0)
     parser.add_argument(
@@ -95,13 +104,16 @@ def main() -> None:
                 qid = ex.get(args.id_field, idx)
             image_path = ""
             if args.images_dir:
-                img = ex.get("img_fn") or ex.get("image") or ex.get("img")
+                img = select_image_source(ex)
                 if hasattr(img, "save"):
                     if args.draw_boxes:
                         img = draw_question_boxes(img, ex.get("question"), ex.get("boxes"))
                     filename = f"egvcr_{idx}.{args.image_format}"
                     image_path = os.path.join(args.images_dir, filename)
                     try:
+                        if args.image_format.lower() in ("jpg", "jpeg") and hasattr(img, "mode"):
+                            if img.mode not in ("RGB", "L"):
+                                img = img.convert("RGB")
                         img.save(image_path)
                     except Exception:
                         image_path = ""

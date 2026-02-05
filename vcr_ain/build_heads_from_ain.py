@@ -144,17 +144,27 @@ def build_messages(image_path: str) -> List[Dict[str, Any]]:
                     "type": "text",
                     "text": (
                         "Return JSON with keys: caption, entities.\n"
-                        "Use the image above. Do not copy any example content.\n"
-                        "caption: one short event sentence starting with 'PersonX is ...'.\n"
-                        "entities: 3-8 key noun phrases (no sentences).\n"
-                        "Output JSON only.\n\n"
-                        "Format example (do NOT reuse content):\n"
-                        "{\"caption\": \"PersonX is <verbing> ...\", \"entities\": [\"<noun1>\", \"<noun2>\", \"<noun3>\"]}"
+                        "Use the image above.\n"
+                        "caption: one short event sentence starting with 'PersonX is ...' describing a visible action.\n"
+                        "entities: 3-8 concrete noun phrases (no sentences).\n"
+                        "Do not use placeholders, angle brackets, or template words like 'verbing' or 'noun1'.\n"
+                        "Output JSON only."
                     ),
                 },
             ],
         },
     ]
+
+
+def contains_placeholder(text: str) -> bool:
+    lower = text.lower()
+    if re.search(r"<[^>]+>", text):
+        return True
+    if "verbing" in lower:
+        return True
+    if re.search(r"\bnoun\\d+\b", lower):
+        return True
+    return False
 
 
 def generate_caption_entities(model, processor, image_path: str) -> Tuple[str, List[str]]:
@@ -171,7 +181,14 @@ def generate_caption_entities(model, processor, image_path: str) -> Tuple[str, L
     entities = obj.get("entities", [])
     if not isinstance(entities, list):
         entities = []
-    return caption, [str(e).strip() for e in entities if str(e).strip()]
+    caption = "" if contains_placeholder(caption) else caption
+    cleaned_entities = []
+    for e in entities:
+        e_str = str(e).strip()
+        if not e_str or contains_placeholder(e_str):
+            continue
+        cleaned_entities.append(e_str)
+    return caption, cleaned_entities
 
 
 def main() -> None:

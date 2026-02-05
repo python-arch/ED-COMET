@@ -60,11 +60,22 @@ def load_comet_cache(path: str, relations: Iterable[str]) -> Dict[str, Dict[str,
     return cache
 
 
-def collect_candidates(tails_by_rel: Dict[str, List[str]]) -> List[Tuple[str, str]]:
+def is_none_tail(text: str) -> bool:
+    return normalize(text) in {"none", "n/a", "na", "unknown", "unk"}
+
+
+def collect_candidates(
+    tails_by_rel: Dict[str, List[str]],
+    drop_none: bool,
+) -> List[Tuple[str, str]]:
     candidates: List[Tuple[str, str]] = []
     for rel, tails in tails_by_rel.items():
         for t in tails:
             t = t.strip()
+            if not t:
+                continue
+            if drop_none and is_none_tail(t):
+                continue
             if t:
                 candidates.append((rel, t))
     return candidates
@@ -138,6 +149,17 @@ def main() -> None:
     parser.add_argument("--tags", default="<REGION=MENA> <COUNTRY=EGY>")
     parser.add_argument("--scorer", choices=["jaccard", "sbert"], default="jaccard")
     parser.add_argument("--sbert-model", default="all-MiniLM-L6-v2")
+    parser.add_argument(
+        "--keep-none",
+        action="store_true",
+        help="Keep COMET 'none' tails instead of filtering them.",
+    )
+    parser.add_argument(
+        "--min-candidates",
+        type=int,
+        default=1,
+        help="Min total candidate tails required to inject ED-COMET.",
+    )
     args = parser.parse_args()
 
     relations = [r.strip() for r in args.relations.split(",") if r.strip()]
@@ -158,14 +180,18 @@ def main() -> None:
             rec = json.loads(line)
             head = normalize(rec.get("head", ""))
             tails_by_rel = comet_cache.get(head, {})
-            candidates = collect_candidates(tails_by_rel)
+            candidates = collect_candidates(tails_by_rel, drop_none=not args.keep_none)
 
             selected_by_option: Dict[str, List[Tuple[str, str]]] = {}
-            for letter, opt_text in rec.get("options", {}).items():
-                query = f"{rec.get('question', '')} {opt_text}"
-                selected_by_option[letter] = select_topk(
-                    query, candidates, args.k, args.scorer, sbert_model
-                )
+            if len(candidates) >= args.min_candidates:
+                for letter, opt_text in rec.get("options", {}).items():
+                    query = f"{rec.get('question', '')} {opt_text}"
+                    selected_by_option[letter] = select_topk(
+                        query, candidates, args.k, args.scorer, sbert_model
+                    )
+            else:
+                for letter in rec.get("options", {}).keys():
+                    selected_by_option[letter] = []
 
             rec["augmented_prompt"] = build_augmented_prompt(
                 rec.get("prompt", ""), selected_by_option, args.tags

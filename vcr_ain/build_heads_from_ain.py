@@ -47,11 +47,23 @@ def extract_json(text: str) -> Dict[str, Any]:
     return {}
 
 
+def _normalize_person_mentions(text: str) -> str:
+    matches = list(re.finditer(r"\bperson(?:[123xyz])\b", text, flags=re.IGNORECASE))
+    if not matches:
+        return text
+    parts = []
+    last = 0
+    for i, m in enumerate(matches):
+        parts.append(text[last:m.start()])
+        parts.append("PersonX" if i == 0 else "PersonY")
+        last = m.end()
+    parts.append(text[last:])
+    return "".join(parts)
+
+
 def clean_caption(caption: str) -> str:
     text = caption.strip().rstrip(".!?")
-    text = re.sub(r"\bperson1\b", "PersonX", text, flags=re.IGNORECASE)
-    text = re.sub(r"\bperson2\b", "PersonY", text, flags=re.IGNORECASE)
-    text = re.sub(r"\bperson3\b", "PersonZ", text, flags=re.IGNORECASE)
+    text = _normalize_person_mentions(text)
     text = re.sub(r"^(a|an|the)\s+", "", text, flags=re.IGNORECASE)
     text = re.sub(r"^(personx|persony|personz)\b", "", text, flags=re.IGNORECASE).strip()
     if text.lower().startswith(("is ", "are ", "was ", "were ")):

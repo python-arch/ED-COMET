@@ -45,6 +45,9 @@ def extract_json(text: str) -> Dict[str, Any]:
 def clean_caption(caption: str) -> str:
     text = caption.strip().rstrip(".!?")
     text = re.sub(r"^(a|an|the)\s+", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"^personx\b", "", text, flags=re.IGNORECASE).strip()
+    if text.lower().startswith(("is ", "are ", "was ", "were ")):
+        text = re.sub(r"^(is|are|was|were)\s+", "", text, flags=re.IGNORECASE).strip()
     text = re.sub(
         r"^(?:\\d+|one|two|three|four|five|six|seven|eight|nine|ten)\\s+",
         "",
@@ -60,9 +63,6 @@ def clean_caption(caption: str) -> str:
     if not text:
         return ""
     lower = text.lower()
-    if lower.startswith(("is ", "are ", "was ", "were ")):
-        text = re.sub(r"^(is|are|was|were)\\s+", "", text, flags=re.IGNORECASE).strip()
-        return "PersonX " + text
 
     preps = (
         "in ",
@@ -111,7 +111,7 @@ def clean_caption(caption: str) -> str:
         "praying",
     )
     first = lower.split()[0]
-    if lower.startswith(preps) or first not in verb_like and not first.endswith("ing"):
+    if lower.startswith(preps) or (first not in verb_like and not first.endswith("ing")):
         return "PersonX is " + text
     return "PersonX " + text
 
@@ -144,16 +144,12 @@ def build_messages(image_path: str) -> List[Dict[str, Any]]:
                     "type": "text",
                     "text": (
                         "Return JSON with keys: caption, entities.\n"
+                        "Use the image above. Do not copy any example content.\n"
                         "caption: one short event sentence starting with 'PersonX is ...'.\n"
-                        "entities: list of key noun phrases (no sentences).\n"
+                        "entities: 3-8 key noun phrases (no sentences).\n"
                         "Output JSON only.\n\n"
-                        "Examples:\n"
-                        "Input: a person cooking in a kitchen.\n"
-                        "Output: {\"caption\": \"PersonX is cooking in a kitchen\", \"entities\": [\"person\", \"kitchen\", \"stove\"]}\n"
-                        "Input: two men shaking hands in a meeting room.\n"
-                        "Output: {\"caption\": \"PersonX is shaking hands\", \"entities\": [\"men\", \"handshake\", \"meeting room\"]}\n"
-                        "Input: a woman holding a baby near a window.\n"
-                        "Output: {\"caption\": \"PersonX is holding a baby\", \"entities\": [\"woman\", \"baby\", \"window\"]}"
+                        "Format example (do NOT reuse content):\n"
+                        "{\"caption\": \"PersonX is <verbing> ...\", \"entities\": [\"<noun1>\", \"<noun2>\", \"<noun3>\"]}"
                     ),
                 },
             ],

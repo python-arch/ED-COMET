@@ -15,14 +15,24 @@ except Exception:
 from qwen_vl_utils import process_vision_info
 
 
+SYSTEM_PROMPT = (
+    "You are a visual reasoning assistant. Given an image, a question, and answer options, "
+    "choose the correct option. Respond with only the letter (A, B, C, or D)."
+)
+
+
+def format_prompt(prompt: str) -> str:
+    return "Answer with a single letter (A, B, C, or D).\n" + prompt
+
+
 def build_messages(prompt: str, image_path: str) -> List[Dict[str, Any]]:
     return [
-        {"role": "system", "content": "You are a helpful assistant."},
+        {"role": "system", "content": SYSTEM_PROMPT},
         {
             "role": "user",
             "content": [
                 {"type": "image", "image": image_path},
-                {"type": "text", "text": prompt},
+                {"type": "text", "text": format_prompt(prompt)},
             ],
         },
     ]

@@ -6,6 +6,11 @@ from typing import Any, Dict, List, Tuple
 
 import torch
 from transformers import AutoProcessor, Qwen2VLForConditionalGeneration
+
+try:
+    from peft import PeftModel
+except Exception:
+    PeftModel = None
 from qwen_vl_utils import process_vision_info
 
 
@@ -196,6 +201,7 @@ def main() -> None:
     parser.add_argument("--input", required=True, help="Input JSONL (from preprocess_vcr).")
     parser.add_argument("--output", required=True, help="Output JSONL with head.")
     parser.add_argument("--model", default="MBZUAI/AIN")
+    parser.add_argument("--lora", default="", help="Optional LoRA adapter path.")
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--dtype", default="bfloat16", choices=["bfloat16", "float16", "float32"])
     args = parser.parse_args()
@@ -206,6 +212,11 @@ def main() -> None:
     model = Qwen2VLForConditionalGeneration.from_pretrained(
         args.model, torch_dtype=dtype, device_map="auto"
     )
+    if args.lora:
+        if PeftModel is None:
+            raise RuntimeError("peft is not available but --lora was provided.")
+        model = PeftModel.from_pretrained(model, args.lora)
+    model.eval()
     processor = AutoProcessor.from_pretrained(args.model)
 
     with open(args.input, "r", encoding="utf-8") as fin, open(

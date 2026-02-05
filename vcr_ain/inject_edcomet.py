@@ -61,12 +61,17 @@ def load_comet_cache(path: str, relations: Iterable[str]) -> Dict[str, Dict[str,
 
 
 def is_none_tail(text: str) -> bool:
-    return normalize(text) in {"none", "n/a", "na", "unknown", "unk"}
+    return normalize(text) in {"none", "n/a", "na", "unknown", "unk", "<unk>"}
+
+
+def is_bad_tail(text: str) -> bool:
+    return "<unk>" in text.lower()
 
 
 def collect_candidates(
     tails_by_rel: Dict[str, List[str]],
     drop_none: bool,
+    drop_unk: bool,
 ) -> List[Tuple[str, str]]:
     candidates: List[Tuple[str, str]] = []
     for rel, tails in tails_by_rel.items():
@@ -75,6 +80,8 @@ def collect_candidates(
             if not t:
                 continue
             if drop_none and is_none_tail(t):
+                continue
+            if drop_unk and is_bad_tail(t):
                 continue
             if t:
                 candidates.append((rel, t))
@@ -135,6 +142,11 @@ def build_augmented_prompt(
     return "\n".join(lines)
 
 
+def tails_key(tails: List[Tuple[str, str]]) -> Tuple[Tuple[str, str], ...]:
+    normalized = sorted((rel, normalize(t)) for rel, t in tails if t.strip())
+    return tuple(normalized)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Inject ED-COMET inferences into VCR prompts.")
     parser.add_argument("--input", required=True, help="Input JSONL (from preprocess_vcr).")
@@ -155,10 +167,20 @@ def main() -> None:
         help="Keep COMET 'none' tails instead of filtering them.",
     )
     parser.add_argument(
+        "--keep-unk",
+        action="store_true",
+        help="Keep COMET '<unk>' tails instead of filtering them.",
+    )
+    parser.add_argument(
         "--min-candidates",
         type=int,
         default=1,
         help="Min total candidate tails required to inject ED-COMET.",
+    )
+    parser.add_argument(
+        "--drop-uniform",
+        action="store_true",
+        help="Drop ED-COMET if all options get identical tails.",
     )
     args = parser.parse_args()
 
@@ -180,7 +202,11 @@ def main() -> None:
             rec = json.loads(line)
             head = normalize(rec.get("head", ""))
             tails_by_rel = comet_cache.get(head, {})
-            candidates = collect_candidates(tails_by_rel, drop_none=not args.keep_none)
+            candidates = collect_candidates(
+                tails_by_rel,
+                drop_none=not args.keep_none,
+                drop_unk=not args.keep_unk,
+            )
 
             selected_by_option: Dict[str, List[Tuple[str, str]]] = {}
             if len(candidates) >= args.min_candidates:
@@ -192,6 +218,12 @@ def main() -> None:
             else:
                 for letter in rec.get("options", {}).keys():
                     selected_by_option[letter] = []
+
+            if args.drop_uniform and selected_by_option:
+                keys = [tails_key(tails) for tails in selected_by_option.values()]
+                if keys and all(k == keys[0] for k in keys) and keys[0]:
+                    for letter in selected_by_option.keys():
+                        selected_by_option[letter] = []
 
             rec["augmented_prompt"] = build_augmented_prompt(
                 rec.get("prompt", ""), selected_by_option, args.tags

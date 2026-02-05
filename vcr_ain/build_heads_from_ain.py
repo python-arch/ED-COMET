@@ -49,8 +49,11 @@ def extract_json(text: str) -> Dict[str, Any]:
 
 def clean_caption(caption: str) -> str:
     text = caption.strip().rstrip(".!?")
+    text = re.sub(r"\bperson1\b", "PersonX", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bperson2\b", "PersonY", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bperson3\b", "PersonZ", text, flags=re.IGNORECASE)
     text = re.sub(r"^(a|an|the)\s+", "", text, flags=re.IGNORECASE)
-    text = re.sub(r"^personx\b", "", text, flags=re.IGNORECASE).strip()
+    text = re.sub(r"^(personx|persony|personz)\b", "", text, flags=re.IGNORECASE).strip()
     if text.lower().startswith(("is ", "are ", "was ", "were ")):
         text = re.sub(r"^(is|are|was|were)\s+", "", text, flags=re.IGNORECASE).strip()
     text = re.sub(
@@ -67,58 +70,7 @@ def clean_caption(caption: str) -> str:
     ).strip()
     if not text:
         return ""
-    lower = text.lower()
-
-    preps = (
-        "in ",
-        "with ",
-        "at ",
-        "on ",
-        "near ",
-        "around ",
-        "by ",
-        "behind ",
-        "beside ",
-        "under ",
-        "over ",
-        "inside ",
-        "outside ",
-        "between ",
-        "during ",
-        "while ",
-    )
-    verb_like = (
-        "engaged",
-        "talking",
-        "speaking",
-        "standing",
-        "sitting",
-        "walking",
-        "holding",
-        "wearing",
-        "looking",
-        "playing",
-        "reading",
-        "cooking",
-        "eating",
-        "drinking",
-        "running",
-        "smiling",
-        "laughing",
-        "fighting",
-        "kissing",
-        "hugging",
-        "meeting",
-        "celebrating",
-        "marrying",
-        "signing",
-        "dancing",
-        "praying",
-    )
-    first = lower.split()[0]
-    if lower.startswith(preps) or (first not in verb_like and not first.endswith("ing")):
-        return "PersonX is " + text
-    return "PersonX " + text
+    return "PersonX is " + text
 
 
 def build_head(caption: str, question: str) -> str:

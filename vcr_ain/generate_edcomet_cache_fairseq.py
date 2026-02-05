@@ -38,6 +38,8 @@ def main() -> None:
         args.output, "w", encoding="utf-8"
     ) as fout:
         batch: List[Dict[str, str]] = []
+        batch_idx = 0
+        written = 0
         for line in fin:
             rec = json.loads(line)
             head = rec.get("head", "").strip()
@@ -47,11 +49,17 @@ def main() -> None:
             batch.append({"head": head, "tags": tags})
 
             if len(batch) >= args.batch_size:
-                _write_batch(batch, relations, args, fout, ckpt_path)
+                batch_idx += 1
+                written += _write_batch(batch, relations, args, fout, ckpt_path)
+                fout.flush()
+                print(f"wrote batch {batch_idx}, total records {written}", flush=True)
                 batch = []
 
         if batch:
-            _write_batch(batch, relations, args, fout, ckpt_path)
+            batch_idx += 1
+            written += _write_batch(batch, relations, args, fout, ckpt_path)
+            fout.flush()
+            print(f"wrote batch {batch_idx}, total records {written}", flush=True)
 
 
 def _run_fairseq_interactive(
@@ -104,7 +112,7 @@ def _run_fairseq_interactive(
     return outputs
 
 
-def _write_batch(batch, relations, args, fout, ckpt_path):
+def _write_batch(batch, relations, args, fout, ckpt_path) -> int:
     jobs: List[Tuple[int, str, str]] = []
     for idx, item in enumerate(batch):
         head = item["head"]
@@ -138,6 +146,7 @@ def _write_batch(batch, relations, args, fout, ckpt_path):
                 unique.append(t)
             out[rel] = unique
         fout.write(json.dumps(out, ensure_ascii=True) + "\n")
+    return len(batch)
 
 
 if __name__ == "__main__":

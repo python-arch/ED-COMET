@@ -1,25 +1,9 @@
 #!/usr/bin/env python3
 import argparse
 import json
-from typing import Dict, List
-
-import torch
-
-
-def load_bart(model_dir: str, checkpoint_file: str, data_bin: str):
-    from fairseq.models.bart import BARTModel
-
-    bart = BARTModel.from_pretrained(
-        model_dir, checkpoint_file=checkpoint_file, data_name_or_path=data_bin
-    )
-    bart.eval()
-    if bart.device.type != "cpu":
-        return bart
-    return bart.cuda() if torch.cuda.is_available() else bart
-
-
-def generate_tails(bart, prompts: List[str], beam: int, max_len_b: int, min_len: int) -> List[str]:
-    return bart.sample(prompts, beam=beam, max_len_b=max_len_b, min_len=min_len)
+import subprocess
+import tempfile
+from typing import Dict, List, Tuple
 
 
 def main() -> None:
@@ -29,6 +13,11 @@ def main() -> None:
     parser.add_argument("--model-dir", required=True, help="Directory containing checkpoint.")
     parser.add_argument("--checkpoint-file", required=True, help="Checkpoint filename (.pt).")
     parser.add_argument("--data-bin", required=True, help="Fairseq data-bin with dict.")
+    parser.add_argument(
+        "--fairseq-interactive",
+        default="fairseq-interactive",
+        help="Path to fairseq-interactive binary.",
+    )
     parser.add_argument("--tags", default="<REGION=MENA> <COUNTRY=EGY>")
     parser.add_argument(
         "--relations",
@@ -43,7 +32,7 @@ def main() -> None:
     args = parser.parse_args()
 
     relations = [r.strip() for r in args.relations.split(",") if r.strip()]
-    bart = load_bart(args.model_dir, args.checkpoint_file, args.data_bin)
+    ckpt_path = f"{args.model_dir.rstrip('/')}/{args.checkpoint_file}"
 
     with open(args.input, "r", encoding="utf-8") as fin, open(
         args.output, "w", encoding="utf-8"
@@ -58,28 +47,84 @@ def main() -> None:
             batch.append({"head": head, "tags": tags})
 
             if len(batch) >= args.batch_size:
-                _write_batch(bart, batch, relations, args, fout)
+                _write_batch(batch, relations, args, fout, ckpt_path)
                 batch = []
 
         if batch:
-            _write_batch(bart, batch, relations, args, fout)
+            _write_batch(batch, relations, args, fout, ckpt_path)
 
 
-def _write_batch(bart, batch, relations, args, fout):
-    for item in batch:
+def _run_fairseq_interactive(
+    prompts: List[str],
+    args,
+    ckpt_path: str,
+) -> List[str]:
+    if not prompts:
+        return []
+    with tempfile.NamedTemporaryFile(mode="w", delete=False, encoding="utf-8") as tmp:
+        for p in prompts:
+            tmp.write(p + "\n")
+        input_path = tmp.name
+
+    cmd = [
+        args.fairseq_interactive,
+        args.data_bin,
+        "--path",
+        ckpt_path,
+        "--source-lang",
+        "source",
+        "--target-lang",
+        "target",
+        "--input",
+        input_path,
+        "--beam",
+        str(args.beam),
+        "--max-len-b",
+        str(args.max_len_b),
+        "--max-len-a",
+        "0",
+        "--min-len",
+        str(args.min_len),
+        "--batch-size",
+        str(args.batch_size),
+    ]
+    result = subprocess.run(cmd, check=True, capture_output=True, text=True)
+    hyps: Dict[int, str] = {}
+    for line in result.stdout.splitlines():
+        if line.startswith("H-"):
+            parts = line.split("\t", 2)
+            if len(parts) != 3:
+                continue
+            idx = int(parts[0][2:])
+            hyps[idx] = parts[2]
+
+    outputs = []
+    for i in range(len(prompts)):
+        outputs.append(hyps.get(i, ""))
+    return outputs
+
+
+def _write_batch(batch, relations, args, fout, ckpt_path):
+    jobs: List[Tuple[int, str, str]] = []
+    for idx, item in enumerate(batch):
+        head = item["head"]
+        tags = item["tags"]
+        for rel in relations:
+            prompt = f"{tags} {head} {rel}"
+            for _ in range(args.num_tails):
+                jobs.append((idx, rel, prompt))
+
+    outputs = _run_fairseq_interactive([j[2] for j in jobs], args, ckpt_path)
+    grouped: Dict[Tuple[int, str], List[str]] = {}
+    for (idx, rel, _), tail in zip(jobs, outputs):
+        grouped.setdefault((idx, rel), []).append(tail)
+
+    for idx, item in enumerate(batch):
         head = item["head"]
         tags = item["tags"]
         out: Dict[str, List[str]] = {"event": head, "meta": {"tags": tags}}
         for rel in relations:
-            prompt = f"{tags} {head} {rel}"
-            prompts = [prompt] * args.num_tails
-            tails = generate_tails(
-                bart,
-                prompts,
-                beam=args.beam,
-                max_len_b=args.max_len_b,
-                min_len=args.min_len,
-            )
+            tails = grouped.get((idx, rel), [])
             seen = set()
             unique = []
             for t in tails:

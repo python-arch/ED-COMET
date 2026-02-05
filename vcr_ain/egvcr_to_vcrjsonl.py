@@ -3,6 +3,7 @@ import argparse
 import ast
 import json
 import os
+import re
 from typing import Any, List
 
 from datasets import load_dataset
@@ -18,6 +19,27 @@ def safe_literal_eval(value: Any, default: Any) -> Any:
     return value
 
 
+def tokens_to_text(value: Any) -> str:
+    tokens = safe_literal_eval(value, value)
+    if isinstance(tokens, list):
+        parts: List[str] = []
+        for tok in tokens:
+            if isinstance(tok, list):
+                parts.extend(str(x) for x in tok)
+            else:
+                parts.append(str(tok))
+        text = " ".join(parts)
+    else:
+        text = str(tokens)
+    text = re.sub(r"\s+([?.!,;:])", r"\1", text)
+    text = re.sub(r"\(\s+", "(", text)
+    text = re.sub(r"\s+\)", ")", text)
+    text = re.sub(r"\s+'s", "'s", text)
+    text = re.sub(r"\s+n't", "n't", text)
+    text = re.sub(r'\s+"([^"]+)\s+"', r' "\1"', text)
+    return text.strip()
+
+
 def parse_answer_choices(answer_choices: Any) -> List[str]:
     choices = safe_literal_eval(answer_choices, [])
     if not isinstance(choices, list):
@@ -25,9 +47,9 @@ def parse_answer_choices(answer_choices: Any) -> List[str]:
     parsed: List[str] = []
     for choice in choices:
         if isinstance(choice, list):
-            parsed.append(" ".join(str(x) for x in choice))
+            parsed.append(tokens_to_text(choice))
         else:
-            parsed.append(str(choice))
+            parsed.append(tokens_to_text(choice))
     return parsed
 
 
@@ -90,6 +112,7 @@ def main() -> None:
             if args.max_examples and idx >= args.max_examples:
                 break
             q_text = ex.get("question_orig") or ex.get("question") or ""
+            q_text = tokens_to_text(q_text)
             choices = parse_answer_choices(ex.get("answer_choices"))
             if len(choices) != 4:
                 continue

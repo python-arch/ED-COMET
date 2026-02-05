@@ -46,14 +46,74 @@ def clean_caption(caption: str) -> str:
     text = caption.strip().rstrip(".!?")
     text = re.sub(r"^(a|an|the)\s+", "", text, flags=re.IGNORECASE)
     text = re.sub(
-        r"^(man|woman|person|boy|girl|child|guy|lady)\b",
+        r"^(?:\\d+|one|two|three|four|five|six|seven|eight|nine|ten)\\s+",
+        "",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        r"^(man|woman|person|boy|girl|child|guy|lady|men|women|people|persons|children|group|group of|couple|pair)\\b",
         "",
         text,
         flags=re.IGNORECASE,
     ).strip()
-    if not text.lower().startswith("personx"):
-        text = "PersonX " + text
-    return text.strip()
+    if not text:
+        return ""
+    lower = text.lower()
+    if lower.startswith(("is ", "are ", "was ", "were ")):
+        text = re.sub(r"^(is|are|was|were)\\s+", "", text, flags=re.IGNORECASE).strip()
+        return "PersonX " + text
+
+    preps = (
+        "in ",
+        "with ",
+        "at ",
+        "on ",
+        "near ",
+        "around ",
+        "by ",
+        "behind ",
+        "beside ",
+        "under ",
+        "over ",
+        "inside ",
+        "outside ",
+        "between ",
+        "during ",
+        "while ",
+    )
+    verb_like = (
+        "engaged",
+        "talking",
+        "speaking",
+        "standing",
+        "sitting",
+        "walking",
+        "holding",
+        "wearing",
+        "looking",
+        "playing",
+        "reading",
+        "cooking",
+        "eating",
+        "drinking",
+        "running",
+        "smiling",
+        "laughing",
+        "fighting",
+        "kissing",
+        "hugging",
+        "meeting",
+        "celebrating",
+        "marrying",
+        "signing",
+        "dancing",
+        "praying",
+    )
+    first = lower.split()[0]
+    if lower.startswith(preps) or first not in verb_like and not first.endswith("ing"):
+        return "PersonX is " + text
+    return "PersonX " + text
 
 
 def build_head(caption: str, question: str) -> str:
@@ -83,9 +143,17 @@ def build_messages(image_path: str) -> List[Dict[str, Any]]:
                 {
                     "type": "text",
                     "text": (
-                        "Return JSON with keys: caption, entities. "
-                        "caption: one short sentence describing the image. "
-                        "entities: list of key noun phrases."
+                        "Return JSON with keys: caption, entities.\n"
+                        "caption: one short event sentence starting with 'PersonX is ...'.\n"
+                        "entities: list of key noun phrases (no sentences).\n"
+                        "Output JSON only.\n\n"
+                        "Examples:\n"
+                        "Input: a person cooking in a kitchen.\n"
+                        "Output: {\"caption\": \"PersonX is cooking in a kitchen\", \"entities\": [\"person\", \"kitchen\", \"stove\"]}\n"
+                        "Input: two men shaking hands in a meeting room.\n"
+                        "Output: {\"caption\": \"PersonX is shaking hands\", \"entities\": [\"men\", \"handshake\", \"meeting room\"]}\n"
+                        "Input: a woman holding a baby near a window.\n"
+                        "Output: {\"caption\": \"PersonX is holding a baby\", \"entities\": [\"woman\", \"baby\", \"window\"]}"
                     ),
                 },
             ],

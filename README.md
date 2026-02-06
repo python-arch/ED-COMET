@@ -1,136 +1,206 @@
-# BART Finetuning on ATOMIC2020 - Complete Guide
+# ED-COMET + AIN: Culturally Grounded Visual Commonsense Reasoning
 
-This guide walks through finetuning pretrained BART model (from fairseq) on the ATOMIC2020 dataset using COMET's training methodology.
+This repo implements a full pipeline for culturally grounded visual commonsense
+reasoning, combining a COMET-style commonsense generator (ED-COMET) with a
+vision-language answer ranker (AIN). It includes:
 
-## Prerequisites
+- BART curriculum for commonsense generation (GD-BART -> ED-BART -> GD-COMET -> ED-COMET)
+- ArabCulture-to-ATOMIC dataset generation (Arab-ATOMIC)
+- VCR/EG-VCR preprocessing and head generation
+- ED-COMET cache generation and prompt injection
+- AIN inference and optional LoRA finetuning
 
-- BART checkpoint pretrained with fairseq (denoising objective)
-- ATOMIC2020 dataset (download from [Google Drive](https://drive.google.com/file/d/1uuY0Y_s8dhxdsoOe8OHRgsqf-9qJIai7/view?usp=drive_link))
-- Python 3.x with PyTorch and Transformers
+## 1) Training curriculum (core methodology)
 
-## Step-by-Step Process
+We use a staged curriculum to gradually introduce culturally grounded commonsense:
 
-### Step 1: Convert Fairseq BART to HuggingFace Format
+1) **GD-BART pretraining (CANDLE)**  
+   Pretrain BART with a denoising objective on CANDLE for general Arabic priors.
 
-Since the finetuning script uses HuggingFace Transformers, we need to convert our fairseq checkpoint first:
+2) **ED-BART continued pretraining (Egypt upsampling)**  
+   Continue pretraining from GD-BART, upweighting Egyptian data (e.g., x5).
+
+3) **GD-COMET finetuning (ATOMIC2020)**  
+   Finetune on ATOMIC to learn causal/social relations:
+   xIntent, xNeed, xReact, xEffect, oReact, oEffect.
+
+4) **ED-COMET specialization (ARAB-ATOMIC + ATOMIC mix)**  
+   Further finetune on a mix of Arab-ATOMIC and ATOMIC (lambda 0.15-0.30).
+
+Notes:
+- Tokenizer/dict must remain consistent across all stages.
+- ED-COMET uses region/country tags (e.g., `<REGION=MENA> <COUNTRY=EGY>`).
+
+## 2) ArabCulture -> Arab-ATOMIC generation pipeline
+
+This pipeline generates an ATOMIC-style dataset from ArabCulture MCQs.
+Entry point: `arabculture_pipeline/run_pipeline.py`.
+
+Example:
 
 ```bash
-# Install transformers if not already installed
-pip install transformers torch
-
-# Convert fairseq checkpoint to HuggingFace format
-python -m transformers.models.bart.convert_bart_original_pytorch_checkpoint_to_pytorch \
-    --fairseq_path /path/to/your/fairseq/checkpoint.pt \
-    --pytorch_dump_folder_path ./checkpoints/bart_hf
+python arabculture_pipeline/run_pipeline.py \
+  --countries Egypt Jordan Palestine KSA UAE Morocco Tunisia Sudan \
+  --head-model inceptionai/Jais-2-8B-Chat \
+  --tail-model Qwen/Qwen2.5-7B-Instruct \
+  --output-dir /path/to/output/arabculture_atomic \
+  --keep-country-yes \
+  --keep-discard-no \
+  --add-region-tag \
+  --add-country-tag \
+  --base-tails 2 \
+  --add-third-tail
 ```
 
-**Note:** Replace `/path/to/your/fairseq/checkpoint.pt` with the actual path to our pretrained checkpoint.
+Outputs:
+- `atomic_full.{train,val,test}.jsonl`
+- `atomic_bart/{train,val,test}.{source,target}`
 
-### Step 2: Extract ATOMIC2020 Dataset
+Optional cleanup:
+- `arabculture_pipeline/filter_heads.py`
+- `arabculture_pipeline/repair_tails.py`
+- `arabculture_pipeline/build_atomic_bart_from_jsonl.py`
 
-Extract the downloaded ATOMIC2020 zip file:
+## 3) GD-COMET finetuning (ATOMIC)
 
-```bash
-# Extract the dataset
-unzip atomic2020_data-feb2021.zip -d ./atomic2020_data-feb2021
-
-# Check the contents
-ls -la ./atomic2020_data-feb2021/
-# Should contain: train.tsv, dev.tsv, test.tsv, README.md, LICENSE, etc.
-```
-
-The TSV files have the format:
-- Column 1: `head` (head event, e.g., "PersonX goes to the store")
-- Column 2: `relation` (e.g., "xIntent", "xNeed", "oEffect")
-- Column 3: `tail` (tail event, e.g., "to buy groceries")
-
-### Step 3: Convert ATOMIC TSV to BART Training Format
-
-Convert the TSV files to `.source` and `.target` format required by the training script:
+Prepare ATOMIC in BART format:
 
 ```bash
 python scripts/prepare_atomic_for_bart.py \
-    --input_dir ./atomic2020_data-feb2021 \
-    --output_dir ./data/atomic_bart
+  --input_dir ./atomic2020_data-feb2021 \
+  --output_dir ./data/atomic_bart
 ```
 
-This creates:
-- `train.source` / `train.target` (training set)
-- `val.source` / `val.target` (validation set, from dev.tsv)
-- `test.source` / `test.target` (test set)
-
-**Format:**
-- `.source` files: `"head_event relation"` (e.g., "PersonX goes to the store xIntent")
-- `.target` files: `"tail_event"` (e.g., "to buy groceries")
-
-**Optional:** Add `--add_gen_token` flag to append `[GEN]` to source (for demo model compatibility):
-```bash
-python scripts/prepare_atomic_for_bart.py \
-    --input_dir ./atomic2020_data-feb2021 \
-    --output_dir ./data/atomic_bart \
-    --add_gen_token
-```
-
-### Step 4: Finetune BART on ATOMIC2020
-
-Run the finetuning script:
+Finetune (Transformers script):
 
 ```bash
 CUDA_VISIBLE_DEVICES=0 python models/comet_atomic2020_bart/finetune.py \
-    --task summarization \
-    --num_workers 2 \
-    --learning_rate=1e-5 \
-    --gpus 1 \
-    --do_train \
-    --do_predict \
-    --n_val 100 \
-    --val_check_interval 1.0 \
-    --sortish_sampler \
-    --max_source_length=48 \
-    --max_target_length=24 \
-    --val_max_target_length=24 \
-    --test_max_target_length=24 \
-    --data_dir ./data/atomic_bart \
-    --train_batch_size=32 \
-    --eval_batch_size=32 \
-    --output_dir ./results/bart_atomic_finetune \
-    --num_train_epochs=10 \
-    --model_name_or_path ./checkpoints/bart_hf \
-    --atomic
+  --task summarization \
+  --do_train --do_predict \
+  --data_dir ./data/atomic_bart \
+  --output_dir ./results/bart_atomic_finetune \
+  --model_name_or_path ./checkpoints/bart_hf \
+  --atomic
 ```
 
-**Important Parameters:**
-- `--model_name_or_path`: Path to your converted HuggingFace BART checkpoint
-- `--data_dir`: Directory containing `.source` and `.target` files
-- `--atomic`: **CRITICAL** - Adds ATOMIC relation tokens to the tokenizer
-- `--num_train_epochs`: Number of training epochs (adjust as needed)
-- `--train_batch_size`: Adjust based on your GPU memory
+## 4) ED-COMET finetuning (Arab-ATOMIC + ATOMIC mix)
 
-### Step 5: Use the Complete Workflow Script
-
-Alternatively, you can use the all-in-one script (edit paths first):
+Create the mixed dataset (example script):
 
 ```bash
-# Edit the script to set your paths
-nano scripts/finetune_bart_on_atomic.sh
-
-# Run the complete workflow
-bash scripts/finetune_bart_on_atomic.sh
+bash arabculture_pipeline/build_atomic_mix.sh
 ```
 
-## Quick Start Commands
+Then finetune with the same recipe as GD-COMET, but using the mixed data.
+
+## 5) VCR/EG-VCR + AIN + ED-COMET inference pipeline
+
+### 5.1 Convert EG-VCR to JSONL (Q->A)
 
 ```bash
-# 1. Convert fairseq checkpoint
-python -m transformers.models.bart.convert_bart_original_pytorch_checkpoint_to_pytorch \
-    --fairseq_path <your_checkpoint.pt> \
-    --pytorch_dump_folder_path ./checkpoints/bart_hf
-
-# 2. Prepare ATOMIC data
-python scripts/prepare_atomic_for_bart.py \
-    --input_dir ./atomic2020_data-feb2021 \
-    --output_dir ./data/atomic_bart
-
-# 3. Finetune BART
-bash scripts/finetune_bart_on_atomic.sh
+python vcr_ain/egvcr_to_vcrjsonl.py \
+  --split train \
+  --output /path/to/egvcr_qa.jsonl \
+  --images-dir /path/to/egvcr_images \
+  --draw-boxes
 ```
+
+### 5.2 Generate heads (AIN caption + entities -> PersonX)
+
+```bash
+python vcr_ain/build_heads_from_ain.py \
+  --input /path/to/egvcr_qa.jsonl \
+  --output /path/to/egvcr_qa.heads.jsonl \
+  --model MBZUAI/AIN
+```
+
+### 5.3 ED-COMET cache (fairseq)
+
+```bash
+python vcr_ain/generate_edcomet_cache_fairseq.py \
+  --input /path/to/egvcr_qa.heads.jsonl \
+  --output /path/to/egvcr_edcomet_cache.jsonl \
+  --model-dir /path/to/checkpoints/comet_finetune_arabculture_mix \
+  --checkpoint-file checkpoint_last.pt \
+  --data-bin /path/to/data-bin/atomic_mix_arabculture_30 \
+  --relations xIntent,xNeed,xReact,xEffect,oReact,oEffect \
+  --num-tails 5 \
+  --beam 10 \
+  --max-len-b 64
+```
+
+### 5.4 Inject ED-COMET into prompts
+
+```bash
+python vcr_ain/inject_edcomet.py \
+  --input /path/to/egvcr_qa.heads.jsonl \
+  --output /path/to/egvcr_qa.edcomet.jsonl \
+  --comet-cache /path/to/egvcr_edcomet_cache.jsonl \
+  --k 5 \
+  --scorer sbert \
+  --min-candidates 3 \
+  --drop-uniform
+```
+
+### 5.5 AIN inference
+
+Baseline:
+
+```bash
+python vcr_ain/ain_infer_vcr.py \
+  --input /path/to/egvcr_qa.heads.jsonl \
+  --output /path/to/egvcr_qa.base.pred.jsonl \
+  --model MBZUAI/AIN \
+  --mode score
+```
+
+ED-COMET:
+
+```bash
+python vcr_ain/ain_infer_vcr.py \
+  --input /path/to/egvcr_qa.edcomet.jsonl \
+  --output /path/to/egvcr_qa.edcomet.pred.jsonl \
+  --model MBZUAI/AIN \
+  --mode score
+```
+
+Optional LoRA:
+
+```bash
+--lora /path/to/ain_lora_qa/checkpoint-1000
+```
+
+## 6) AIN LoRA finetuning (Q->A, then QA->R)
+
+```bash
+python vcr_ain/train_ain_lora.py \
+  --train-jsonl /path/to/vcr_qa.sft.jsonl \
+  --valid-jsonl /path/to/vcr_qa_val.sft.jsonl \
+  --output-dir /path/to/ain_lora_qa \
+  --model MBZUAI/AIN \
+  --input-format qwen \
+  --bf16
+```
+
+## 7) Main libraries and tools
+
+- PyTorch
+- Transformers
+- Accelerate
+- PEFT (LoRA)
+- Fairseq
+- sentence-transformers (SBERT)
+- datasets (HF)
+- vllm
+- qwen-vl-utils
+
+## 8) Results (example)
+
+- AIN baseline on EG-VCR Q->A: 0.61
+- AIN + ED-COMET on EG-VCR Q->A: 0.75
+
+## 9) Notes and gotchas
+
+- Dict/tokenizer sizes must match the COMET checkpoint.
+- For fairseq COMET, keep dict files at the original size (fairseq adds 4 special tokens).
+- Use gating (drop uniform tails) to avoid noisy injections.

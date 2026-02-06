@@ -194,7 +194,7 @@ python vcr_ain/train_ain_lora.py \
 - vllm
 - qwen-vl-utils
 
-## 8) Results (example)
+## 8) Results
 
 - AIN baseline on EG-VCR Q->A: 0.61
 - AIN + ED-COMET on EG-VCR Q->A: 0.75
